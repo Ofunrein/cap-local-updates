@@ -84,6 +84,12 @@ jobs:
           node-version: 22
           cache: pnpm
 
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        if: steps.guard.outputs.skip != 'true'
+        with:
+          shared-key: aarch64-apple-darwin
+          cache-bin: false
+
       - name: Install native and JavaScript dependencies
         if: steps.guard.outputs.skip != 'true'
         shell: bash
@@ -94,13 +100,21 @@ jobs:
           # Frozen lockfile prevents registry resolution drift during release builds.
           pnpm install --frozen-lockfile
 
+      - name: Prepare pinned native dependencies
+        if: steps.guard.outputs.skip != 'true'
+        env:
+          RUST_TARGET_TRIPLE: aarch64-apple-darwin
+        run: |
+          touch .env
+          pnpm -w cap-setup
+
       - name: Build Cap 2
         if: steps.guard.outputs.skip != 'true'
         shell: bash
         run: |
           export PKG_CONFIG_PATH="$FFMPEG_DIR/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
           export LIBRARY_PATH="$FFMPEG_DIR/lib${LIBRARY_PATH:+:$LIBRARY_PATH}"
-          pnpm --filter @cap/desktop build:sidecar
+          ./scripts/build-desktop-binaries.sh aarch64-apple-darwin
           cd apps/desktop
           pnpm tauri build --debug --config src-tauri/tauri.cap2.conf.json --bundles app
 
