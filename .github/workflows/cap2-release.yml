@@ -89,6 +89,7 @@ jobs:
         with:
           shared-key: aarch64-apple-darwin
           cache-bin: false
+          cache-on-failure: true
 
       - name: Install native and JavaScript dependencies
         if: steps.guard.outputs.skip != 'true'
@@ -128,7 +129,7 @@ jobs:
           codesign --force --deep --sign - "$APP"
           codesign --verify --deep --strict "$APP"
           tar -C "$(dirname "$APP")" -czf "$ARCHIVE" "$(basename "$APP")"
-          pnpm --dir apps/desktop tauri signer sign "$ARCHIVE"
+          pnpm --dir apps/desktop tauri signer sign "$PWD/$ARCHIVE"
           ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
           echo "APP_ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
           echo "APP_ZIP=$ZIP" >> "$GITHUB_ENV"
