@@ -117,7 +117,7 @@ index 9c58541d5..eda230fad 100644
  
  #[tauri::command]
 diff --git a/apps/desktop/src-tauri/src/updates.rs b/apps/desktop/src-tauri/src/updates.rs
-index ac2e1cb37..026bfe678 100644
+index ac2e1cb37..efb9147fe 100644
 --- a/apps/desktop/src-tauri/src/updates.rs
 +++ b/apps/desktop/src-tauri/src/updates.rs
 @@ -10,7 +10,7 @@ use tracing::{info, warn};
@@ -129,6 +129,47 @@ index ac2e1cb37..026bfe678 100644
  
  const FIRST_CHECK_DELAY: Duration = Duration::from_secs(60);
  const CHECK_INTERVAL: Duration = Duration::from_secs(2 * 60 * 60);
+@@ -272,11 +272,6 @@ pub fn updates_channel_changed(app: AppHandle) -> Result<(), String> {
+ }
+ 
+ pub fn spawn_background_loop(app: AppHandle) {
+-    // Never auto-update dev builds.
+-    if cfg!(debug_assertions) {
+-        return;
+-    }
+-
+     tokio::spawn(async move {
+         let mut delay = FIRST_CHECK_DELAY;
+ 
+@@ -291,11 +286,6 @@ pub fn spawn_background_loop(app: AppHandle) {
+ 
+             delay = CHECK_INTERVAL;
+ 
+-            // Stable updates stay frontend-driven; this loop only owns nightly.
+-            if current_channel(&app) != UpdateChannel::Nightly {
+-                continue;
+-            }
+-
+             if is_busy(&app).await {
+                 delay = BUSY_RETRY_DELAY;
+                 continue;
+@@ -357,14 +347,14 @@ pub fn spawn_background_loop(app: AppHandle) {
+                         p.installed = true;
+                     }
+ 
+-                    info!("Nightly update {version} installed; restart to apply");
++                    info!("Update {version} installed; restart to apply");
+                     true
+                 }
+             } else {
+                 // Windows (NSIS) install exits the app mid-session and Linux
+                 // (deb) prompts for privileges, so never auto-install there;
+                 // announce and let the user trigger the install.
+-                info!("Nightly update {version} available");
++                info!("Update {version} available");
+                 false
+             };
+ 
 diff --git a/apps/desktop/src-tauri/tauri.cap2.conf.json b/apps/desktop/src-tauri/tauri.cap2.conf.json
 new file mode 100644
 index 000000000..9500e4a2f
