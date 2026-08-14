@@ -1,3 +1,16 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index 88ca9aca6..1f5022cac 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -1435,7 +1435,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "cap-desktop"
+-version = "0.5.9"
++version = "0.5.10"
+ dependencies = [
+  "aho-corasick",
+  "anyhow",
 diff --git a/apps/desktop/src-tauri/src/auth.rs b/apps/desktop/src-tauri/src/auth.rs
 index 5ae16506d..355968c5c 100644
 --- a/apps/desktop/src-tauri/src/auth.rs
@@ -169,6 +182,29 @@ index c6771ca3d..64fac0543 100644
  	const managedByOrganization = () => storage()?.managedByOrganization ?? null;
  
  	onMount(() => {
+diff --git a/apps/desktop/src/routes/(window-chrome)/update.tsx b/apps/desktop/src/routes/(window-chrome)/update.tsx
+index ca9cb960f..cabe76dca 100644
+--- a/apps/desktop/src/routes/(window-chrome)/update.tsx
++++ b/apps/desktop/src/routes/(window-chrome)/update.tsx
+@@ -34,8 +34,16 @@ export default function () {
+ 				<div class="flex flex-col gap-4 items-center text-center max-w-md">
+ 					<p class="text-(--text-primary)">{updateError()}</p>
+ 					<p class="text-(--text-tertiary)">
+-						Please download the latest version manually from cap.so/download.
+-						Your data will not be lost.
++						Download the latest Cap 2 release from
++						{" "}
++						<a
++							class="underline"
++							href="https://github.com/Ofunrein/cap-local-updates/releases/latest"
++							target="_blank"
++						>
++							GitHub
++						</a>
++						. Your data will not be lost.
+ 					</p>
+ 					<p class="text-(--text-tertiary) text-xs">
+ 						If this issue persists, please contact support.
 diff --git a/apps/desktop/src/routes/in-progress-recording.tsx b/apps/desktop/src/routes/in-progress-recording.tsx
 index 7afd88628..8a16029a9 100644
 --- a/apps/desktop/src/routes/in-progress-recording.tsx
@@ -189,11 +225,17 @@ index 7afd88628..8a16029a9 100644
  
  	let aborted = false;
 diff --git a/apps/desktop/src/routes/target-select-overlay.tsx b/apps/desktop/src/routes/target-select-overlay.tsx
-index 772fc3f00..00b30351e 100644
+index 772fc3f00..308c888fa 100644
 --- a/apps/desktop/src/routes/target-select-overlay.tsx
 +++ b/apps/desktop/src/routes/target-select-overlay.tsx
-@@ -2316,7 +2316,7 @@ function ShowCapFreeWarning(props: { isInstantMode: boolean }) {
+@@ -2311,12 +2311,10 @@ function RecordingControls(props: {
+ 	);
+ }
  
+-function ShowCapFreeWarning(props: { isInstantMode: boolean }) {
+-	const auth = authStore.createQuery();
+-
++function ShowCapFreeWarning(_props: { isInstantMode: boolean }) {
  	return (
  		<Suspense>
 -			<Show when={props.isInstantMode && auth.data?.plan?.upgraded === false}>
