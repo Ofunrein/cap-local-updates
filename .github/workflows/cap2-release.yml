@@ -1,0 +1,139 @@
+name: Build and release Cap 2
+
+on:
+  workflow_run:
+    workflows: ["Sync upstream Cap"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cap2-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: macos-15-arm64
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.CAP2_TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.CAP2_TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      VITE_SERVER_URL: http://127.0.0.1:3000
+      VITE_ENVIRONMENT: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Skip commits already released
+        id: guard
+        shell: bash
+        run: |
+          SHA=$(git rev-parse HEAD)
+          BODY=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .body 2>/dev/null || true)
+          if grep -q "Upstream-Commit: $SHA" <<<"$BODY"; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Apply Cap 2 overlay and version
+        if: steps.guard.outputs.skip != 'true'
+        shell: bash
+        run: |
+          git apply --check .cap2/cap2.patch
+          git apply .cap2/cap2.patch
+          BASE=$(python3 - <<'PY'
+          import re
+          text=open('apps/desktop/src-tauri/Cargo.toml').read()
+          print(re.search(r'^version = "([^"]+)"', text, re.M).group(1))
+          PY
+          )
+          VERSION=$(python3 - "$BASE" <<'PY'
+          import datetime,re,sys
+          m=re.match(r'(\d+)\.(\d+)\.(\d+)',sys.argv[1])
+          if not m: raise SystemExit('unsupported upstream version')
+          a,b,_=map(int,m.groups())
+          print(f'{a}.{b}.{datetime.datetime.now(datetime.timezone.utc):%Y%m%d%H%M}')
+          PY
+          )
+          python3 - "$VERSION" <<'PY'
+          import re,sys
+          for p in ('apps/desktop/src-tauri/Cargo.toml','Cargo.lock'):
+              s=open(p).read()
+              if p == 'Cargo.lock':
+                  s=re.sub(r'(name = "cap-desktop"\nversion = ")[^"]+', r'\g<1>'+sys.argv[1], s, count=1)
+              else:
+                  s=re.sub(r'^version = "[^"]+"', f'version = "{sys.argv[1]}"', s, count=1, flags=re.M)
+              open(p,'w').write(s)
+          PY
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "UPSTREAM_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - uses: pnpm/action-setup@v4
+        if: steps.guard.outputs.skip != 'true'
+        with:
+          version: 10.15.1
+
+      - uses: actions/setup-node@v4
+        if: steps.guard.outputs.skip != 'true'
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install native and JavaScript dependencies
+        if: steps.guard.outputs.skip != 'true'
+        shell: bash
+        run: |
+          brew install ffmpeg@7
+          echo "FFMPEG_DIR=$(brew --prefix ffmpeg@7)" >> "$GITHUB_ENV"
+          pnpm install --frozen-lockfile
+
+      - name: Build Cap 2
+        if: steps.guard.outputs.skip != 'true'
+        shell: bash
+        run: |
+          export PKG_CONFIG_PATH="$FFMPEG_DIR/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+          export LIBRARY_PATH="$FFMPEG_DIR/lib${LIBRARY_PATH:+:$LIBRARY_PATH}"
+          pnpm --filter @cap/desktop build:sidecar
+          cd apps/desktop
+          pnpm tauri build --debug --config src-tauri/tauri.cap2.conf.json --bundles app
+
+      - name: Sign bundle and updater package
+        if: steps.guard.outputs.skip != 'true'
+        shell: bash
+        run: |
+          APP="target/debug/bundle/macos/Cap 2.app"
+          ARCHIVE="target/debug/bundle/macos/Cap.2_${VERSION}_aarch64.app.tar.gz"
+          ZIP="$RUNNER_TEMP/Cap-2-${VERSION}-macOS-arm64.zip"
+          codesign --force --deep --sign - "$APP"
+          codesign --verify --deep --strict "$APP"
+          tar -C "$(dirname "$APP")" -czf "$ARCHIVE" "$(basename "$APP")"
+          pnpm --dir apps/desktop tauri signer sign "$ARCHIVE"
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
+          echo "APP_ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
+          echo "APP_ZIP=$ZIP" >> "$GITHUB_ENV"
+
+      - name: Create signed release and updater manifest
+        if: steps.guard.outputs.skip != 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="cap2-v${VERSION}-u${UPSTREAM_SHA:0:7}"
+          ASSET=$(basename "$APP_ARCHIVE")
+          SIG=$(tr -d '\n' < "$APP_ARCHIVE.sig")
+          URL="https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/$ASSET"
+          python3 - "$VERSION" "$SIG" "$URL" > "$RUNNER_TEMP/latest.json" <<'PY'
+          import datetime,json,sys
+          version,signature,url=sys.argv[1:]
+          print(json.dumps({'version':version,'notes':f'Cap 2 {version}','pub_date':datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),'platforms':{'darwin-aarch64':{'signature':signature,'url':url}}},indent=2))
+          PY
+          gh release create "$TAG" "$APP_ARCHIVE" "$APP_ARCHIVE.sig" "$APP_ZIP" "$RUNNER_TEMP/latest.json" \
+            --target "$UPSTREAM_SHA" --title "Cap 2 $VERSION" \
+            --notes $'Automated Cap 2 build.\n\nUpstream-Commit: '"$UPSTREAM_SHA"$'\nCap2-Version: '"$VERSION"
