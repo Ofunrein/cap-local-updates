@@ -1,0 +1,238 @@
+diff --git a/apps/desktop/src-tauri/Cargo.toml b/apps/desktop/src-tauri/Cargo.toml
+index 73f82aef0..b06967d29 100644
+--- a/apps/desktop/src-tauri/Cargo.toml
++++ b/apps/desktop/src-tauri/Cargo.toml
+@@ -1,6 +1,6 @@
+ [package]
+ name = "cap-desktop"
+-version = "0.5.9"
++version = "0.5.10"
+ description = "Beautiful screen recordings, owned by you."
+ authors = ["you"]
+ edition = "2024"
+diff --git a/apps/desktop/src-tauri/src/auth.rs b/apps/desktop/src-tauri/src/auth.rs
+index 5ae16506d..355968c5c 100644
+--- a/apps/desktop/src-tauri/src/auth.rs
++++ b/apps/desktop/src-tauri/src/auth.rs
+@@ -114,10 +114,7 @@ impl AuthStore {
+     }
+ 
+     pub fn is_upgraded(&self) -> bool {
+-        match &self.plan {
+-            Some(plan) => plan.upgraded || plan.manual,
+-            None => false,
+-        }
++        true
+     }
+ 
+     pub fn set(app: &AppHandle, value: Option<Self>) -> Result<(), String> {
+diff --git a/apps/desktop/src-tauri/src/lib.rs b/apps/desktop/src-tauri/src/lib.rs
+index 9c58541d5..eda230fad 100644
+--- a/apps/desktop/src-tauri/src/lib.rs
++++ b/apps/desktop/src-tauri/src/lib.rs
+@@ -51,7 +51,7 @@ mod window_position_persistence;
+ mod windows;
+ 
+ use audio::AppSounds;
+-use auth::{AuthStore, Plan};
++use auth::AuthStore;
+ use camera::{CameraPreviewManager, CameraPreviewSender, CameraPreviewState};
+ use cap_editor::{EditorInstance, EditorState};
+ use cap_project::{
+@@ -116,7 +116,6 @@ use tokio::sync::{Mutex, RwLock, oneshot, watch};
+ use tracing::*;
+ use upload::{create_or_get_video, upload_screenshot_bytes, upload_screenshot_file, upload_video};
+ use web_api::AuthedApiError;
+-use web_api::ManagerExt as WebManagerExt;
+ #[cfg(target_os = "macos")]
+ use windows::hide_overlay;
+ use windows::{
+@@ -4076,64 +4075,9 @@ fn list_screenshots(app: AppHandle) -> Result<Vec<(PathBuf, ScreenshotMetaWithMe
+ 
+ #[tauri::command]
+ #[specta::specta]
+-#[instrument(skip(app))]
+-async fn check_upgraded_and_update(app: AppHandle) -> Result<bool, String> {
+-    println!("Checking upgraded status and updating...");
+-
+-    if let Ok(Some(settings)) = GeneralSettingsStore::get(&app)
+-        && settings.commercial_license.is_some()
+-    {
+-        return Ok(true);
+-    }
+-
+-    let Ok(Some(auth)) = AuthStore::get(&app) else {
+-        return Ok(false);
+-    };
+-
+-    if let Some(ref plan) = auth.plan
+-        && plan.manual
+-    {
+-        return Ok(true);
+-    }
+-
+-    println!(
+-        "Fetching plan for user {}",
+-        auth.user_id.as_deref().unwrap_or("unknown")
+-    );
+-    let response = app
+-        .authed_api_request("/api/desktop/plan", |client, url| client.get(url))
+-        .await
+-        .map_err(|e| {
+-            println!("Failed to fetch plan: {e}");
+-            e.to_string()
+-        })?;
+-
+-    println!("Plan fetch response status: {}", response.status());
+-    let plan_data = response.json::<serde_json::Value>().await.map_err(|e| {
+-        println!("Failed to parse plan response: {e}");
+-        format!("Failed to parse plan response: {e}")
+-    })?;
+-
+-    let is_pro = plan_data
+-        .get("upgraded")
+-        .and_then(|v| v.as_bool())
+-        .unwrap_or(false);
+-    println!("Pro status: {is_pro}");
+-    let updated_auth = AuthStore {
+-        secret: auth.secret,
+-        user_id: auth.user_id,
+-        plan: Some(Plan {
+-            upgraded: is_pro,
+-            manual: auth.plan.map(|p| p.manual).unwrap_or(false),
+-            last_checked: chrono::Utc::now().timestamp() as i32,
+-        }),
+-        organizations: auth.organizations,
+-        organizations_updated_at: auth.organizations_updated_at,
+-    };
+-    println!("Updating auth store with new pro status");
+-    AuthStore::set(&app, Some(updated_auth)).map_err(|e| e.to_string())?;
+-
+-    Ok(is_pro)
++#[instrument(skip(_app))]
++async fn check_upgraded_and_update(_app: AppHandle) -> Result<bool, String> {
++    Ok(true)
+ }
+ 
+ #[tauri::command]
+diff --git a/apps/desktop/src-tauri/src/updates.rs b/apps/desktop/src-tauri/src/updates.rs
+index ac2e1cb37..026bfe678 100644
+--- a/apps/desktop/src-tauri/src/updates.rs
++++ b/apps/desktop/src-tauri/src/updates.rs
+@@ -10,7 +10,7 @@ use tracing::{info, warn};
+ use crate::general_settings::GeneralSettingsStore;
+ 
+ const UPDATE_ENDPOINT: &str =
+-    "https://cdn.crabnebula.app/update/cap/cap/{{target}}/{{current_version}}";
++    "https://github.com/Ofunrein/cap-local-updates/releases/latest/download/latest.json";
+ 
+ const FIRST_CHECK_DELAY: Duration = Duration::from_secs(60);
+ const CHECK_INTERVAL: Duration = Duration::from_secs(2 * 60 * 60);
+diff --git a/apps/desktop/src-tauri/tauri.cap2.conf.json b/apps/desktop/src-tauri/tauri.cap2.conf.json
+new file mode 100644
+index 000000000..9500e4a2f
+--- /dev/null
++++ b/apps/desktop/src-tauri/tauri.cap2.conf.json
+@@ -0,0 +1,19 @@
++{
++	"$schema": "https://schema.tauri.app/config/2",
++	"productName": "Cap 2",
++	"mainBinaryName": "Cap 2",
++	"identifier": "so.cap.desktop.local",
++	"plugins": {
++		"updater": {
++			"active": true,
++			"endpoints": [
++				"https://github.com/Ofunrein/cap-local-updates/releases/latest/download/latest.json"
++			],
++			"dialog": true,
++			"pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDMwMTUwMDBENkI4NzA1QjUKUldTMUJZZHJEUUFWTU9BZ1lLOVVDVGhJSHM3OUpHb2FST0xVYkpjeEFBVzh2aXJXTmRma1NOeXgK"
++		}
++	},
++	"bundle": {
++		"createUpdaterArtifacts": true
++	}
++}
+\ No newline at end of file
+diff --git a/apps/desktop/src/routes/(window-chrome)/settings/general.tsx b/apps/desktop/src/routes/(window-chrome)/settings/general.tsx
+index 46e7b2052..d6b30e17a 100644
+--- a/apps/desktop/src/routes/(window-chrome)/settings/general.tsx
++++ b/apps/desktop/src/routes/(window-chrome)/settings/general.tsx
+@@ -239,8 +239,7 @@ function Inner(props: {
+ 	);
+ 	const auth = authStore.createQuery();
+ 	const hasCapPro = createMemo(() => {
+-		const plan = auth.data?.plan;
+-		return !!plan && (plan.upgraded || plan.manual);
++		return true;
+ 	});
+ 	const instantModeMaxResolution = createMemo(() =>
+ 		hasCapPro()
+diff --git a/apps/desktop/src/routes/(window-chrome)/settings/integrations/index.tsx b/apps/desktop/src/routes/(window-chrome)/settings/integrations/index.tsx
+index c6771ca3d..64fac0543 100644
+--- a/apps/desktop/src/routes/(window-chrome)/settings/integrations/index.tsx
++++ b/apps/desktop/src/routes/(window-chrome)/settings/integrations/index.tsx
+@@ -73,7 +73,7 @@ export default function AppsTab() {
+ 		},
+ 	);
+ 
+-	const isPro = () => auth.data?.plan?.upgraded;
++	const isPro = () => true;
+ 	const managedByOrganization = () => storage()?.managedByOrganization ?? null;
+ 
+ 	onMount(() => {
+diff --git a/apps/desktop/src/routes/in-progress-recording.tsx b/apps/desktop/src/routes/in-progress-recording.tsx
+index 7afd88628..8a16029a9 100644
+--- a/apps/desktop/src/routes/in-progress-recording.tsx
++++ b/apps/desktop/src/routes/in-progress-recording.tsx
+@@ -718,13 +718,7 @@ function InProgressRecordingInner() {
+ 	};
+ 
+ 	const isMaxRecordingLimitEnabled = () => {
+-		// Only enforce the limit on instant mode.
+-		// We enforce it on studio mode when exporting.
+-		return (
+-			optionsQuery.rawOptions.mode === "instant" &&
+-			// If the data is loaded and the user is not upgraded
+-			authData()?.plan?.upgraded === false
+-		);
++		return false;
+ 	};
+ 
+ 	let aborted = false;
+diff --git a/apps/desktop/src/routes/target-select-overlay.tsx b/apps/desktop/src/routes/target-select-overlay.tsx
+index 772fc3f00..00b30351e 100644
+--- a/apps/desktop/src/routes/target-select-overlay.tsx
++++ b/apps/desktop/src/routes/target-select-overlay.tsx
+@@ -2316,7 +2316,7 @@ function ShowCapFreeWarning(props: { isInstantMode: boolean }) {
+ 
+ 	return (
+ 		<Suspense>
+-			<Show when={props.isInstantMode && auth.data?.plan?.upgraded === false}>
++			<Show when={false}>
+ 				<p class="text-sm text-center max-w-64 text-gray-3 mt-3">
+ 					Instant Mode recordings are limited to 5 mins,{" "}
+ 					<button
+diff --git a/apps/desktop/src/utils/queries.ts b/apps/desktop/src/utils/queries.ts
+index 4118d0cb9..6a79412d8 100644
+--- a/apps/desktop/src/utils/queries.ts
++++ b/apps/desktop/src/utils/queries.ts
+@@ -258,17 +258,7 @@ export function createLicenseQuery() {
+ 	const query = createQuery(() => ({
+ 		queryKey: ["licenseQuery"],
+ 		queryFn: async () => {
+-			const settings = await generalSettingsStore.get();
+-			const auth = await authStore.get();
+-
+-			if (auth?.plan?.upgraded) return { type: "pro" as const, ...auth.plan };
+-			if (settings?.commercialLicense)
+-				return {
+-					type: "commercial" as const,
+-					...settings.commercialLicense,
+-					instanceId: settings.instanceId,
+-				};
+-			return { type: "personal" as const };
++			return { type: "pro" as const, upgraded: true, manual: true };
+ 		},
+ 	}));
+ 
