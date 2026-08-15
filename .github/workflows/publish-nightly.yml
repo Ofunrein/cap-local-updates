@@ -31,6 +31,10 @@ concurrency:
 
 jobs:
   prepare:
+    # Upstream-only. Nightlies publish to the CrabNebula application `cap/cap`,
+    # whose CN_API_KEY exists only in CapSoftware/Cap. Forks release through
+    # cap2-release.yml instead, so the scheduled run is skipped here.
+    if: github.repository == 'CapSoftware/Cap'
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
