@@ -4,6 +4,7 @@ import { buildEnv } from "@cap/env";
 import { Button, Dialog, DialogContent, Switch } from "@cap/ui";
 import NumberFlow from "@number-flow/react";
 import { useMutation } from "@tanstack/react-query";
+import { useCurrency } from "hooks/useCurrency";
 import {
 	BarChart3,
 	Database,
@@ -24,6 +25,7 @@ import { useRouter } from "next/navigation";
 import { memo, useState } from "react";
 import { toast } from "sonner";
 import { useStripeContext } from "@/app/Layout/StripeContext";
+import { PRICING } from "@/data/pricing";
 import { Fit, Layout, useRive } from "@/lib/rive";
 
 interface UpgradeModalProps {
@@ -69,11 +71,14 @@ const UpgradeModalImpl = ({
 	dismissible = true,
 }: UpgradeModalProps) => {
 	const stripeCtx = useStripeContext();
+	const { currency } = useCurrency();
 	const [isAnnual, setIsAnnual] = useState(true);
 	const [proQuantity, setProQuantity] = useState(1);
 	const { push } = useRouter();
 
-	const pricePerUser = isAnnual ? 8.16 : 12;
+	const pricePerUser = isAnnual
+		? PRICING.pro.annualPerMonth
+		: PRICING.pro.monthly;
 	const totalPrice = pricePerUser * proQuantity;
 	const billingText = isAnnual ? "billed annually" : "billed monthly";
 
@@ -238,7 +243,7 @@ const UpgradeModalImpl = ({
 												className="text-3xl font-medium tabular-nums text-gray-12"
 												format={{
 													style: "currency",
-													currency: "USD",
+													currency: currency.toUpperCase(),
 												}}
 											/>
 											<span className="mb-2 ml-2 text-gray-11">
