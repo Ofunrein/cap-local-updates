@@ -64,7 +64,18 @@
 	},
 	"pnpm": {
 		"overrides": {
-			"react-native-worklets": "0.7.4"
+			"react-native-worklets": "0.7.4",
+			"keyv": "5.6.0",
+			"flat-cache": "6.1.23",
+			"file-entry-cache": "11.1.5",
+			"cacheable-request": "13.0.19",
+			"cacheable": "2.5.0",
+			"@cacheable/utils": "2.5.0",
+			"cache-manager": "7.2.9",
+			"@cacheable/net": "2.1.0",
+			"@cacheable/node-cache": "3.1.1",
+			"@cacheable/memory": "2.2.0",
+			"ecto": "5.0.0"
 		},
 		"peerDependencyRules": {
 			"allowedVersions": {

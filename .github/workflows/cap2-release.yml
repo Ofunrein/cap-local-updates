@@ -91,15 +91,47 @@ jobs:
           cache-bin: false
           cache-on-failure: true
 
+      - name: Block known compromised npm releases
+        if: steps.guard.outputs.skip != 'true'
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          lock = Path("pnpm-lock.yaml").read_text()
+          compromised = [
+              "keyv@6.0.0",
+              "flat-cache@6.1.24",
+              "file-entry-cache@11.1.6",
+              "cacheable-request@13.0.20",
+              "cacheable@2.5.1",
+              "@cacheable/utils@2.5.1",
+              "cache-manager@7.2.10",
+              "@cacheable/net@2.1.1",
+              "@cacheable/node-cache@3.1.2",
+              "@cacheable/memory@2.2.1",
+              "ecto@5.0.1",
+          ]
+          found = [p for p in compromised if re.search(rf"(?m)^\s{{2}}{re.escape(p)}:", lock)]
+          if found:
+              raise SystemExit("Compromised npm releases in lockfile: " + ", ".join(found))
+          print("No known ChainDrop releases in pnpm-lock.yaml")
+          PY
+          if git grep -n -E 'Math_Symbol\.js|gh-token-monitor|com\.user\.gh-token-monitor' -- . ':!pnpm-lock.yaml'; then
+            echo "ChainDrop indicator found in repository" >&2
+            exit 1
+          fi
+
       - name: Install native and JavaScript dependencies
         if: steps.guard.outputs.skip != 'true'
         shell: bash
         run: |
           brew install ffmpeg@7
           echo "FFMPEG_DIR=$(brew --prefix ffmpeg@7)" >> "$GITHUB_ENV"
-          # pnpm 10 blocks dependency lifecycle scripts unless explicitly approved.
-          # Frozen lockfile prevents registry resolution drift during release builds.
-          pnpm install --frozen-lockfile
+          # Never execute dependency lifecycle scripts during release installation.
+          # Project-controlled native setup runs explicitly in the next step.
+          pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Prepare pinned native dependencies
         if: steps.guard.outputs.skip != 'true'
