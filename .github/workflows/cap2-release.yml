@@ -118,7 +118,7 @@ jobs:
               raise SystemExit("Compromised npm releases in lockfile: " + ", ".join(found))
           print("No known ChainDrop releases in pnpm-lock.yaml")
           PY
-          if git grep -n -E 'Math_Symbol\.js|gh-token-monitor|com\.user\.gh-token-monitor' -- . ':!pnpm-lock.yaml'; then
+          if git grep -n -E 'Math_Symbol\.js|gh-token-monitor|com\.user\.gh-token-monitor' -- . ':!pnpm-lock.yaml' ':!.github/workflows/cap2-release.yml'; then
             echo "ChainDrop indicator found in repository" >&2
             exit 1
           fi
