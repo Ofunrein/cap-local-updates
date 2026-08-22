@@ -41,4 +41,16 @@ jobs:
             git commit --no-edit
           fi
 
+          # Expo's compatibility metadata can advance between upstream commits.
+          # Normalize mobile patch versions before pushing so scheduled syncs do
+          # not knowingly create a red Mobile CI run.
+          corepack enable
+          corepack prepare "$(node -p "require('./package.json').packageManager")" --activate
+          pnpm install --ignore-scripts
+          pnpm --dir apps/mobile exec expo install --fix
+          if ! git diff --quiet -- apps/mobile/package.json pnpm-lock.yaml; then
+            git add apps/mobile/package.json pnpm-lock.yaml
+            git commit -m "chore(mobile): align Expo SDK dependencies"
+          fi
+
           git push origin main
