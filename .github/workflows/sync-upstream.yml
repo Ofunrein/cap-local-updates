@@ -22,5 +22,23 @@ jobs:
           git remote add upstream https://github.com/CapSoftware/Cap.git
           git fetch upstream main
           git checkout main
-          git merge --no-edit upstream/main
+
+          if ! git merge --no-edit upstream/main; then
+            conflicts="$(git diff --name-only --diff-filter=U)"
+            if [ "$conflicts" != "pnpm-lock.yaml" ]; then
+              echo "Upstream merge has conflicts that require review:"
+              printf '%s\n' "$conflicts"
+              exit 1
+            fi
+
+            # Lockfiles are generated. Rebuild from the merged manifests instead
+            # of letting routine dependency updates break every scheduled sync.
+            git checkout --theirs pnpm-lock.yaml
+            corepack enable
+            corepack prepare "$(node -p "require('./package.json').packageManager")" --activate
+            pnpm install --lockfile-only --ignore-scripts
+            git add pnpm-lock.yaml
+            git commit --no-edit
+          fi
+
           git push origin main
