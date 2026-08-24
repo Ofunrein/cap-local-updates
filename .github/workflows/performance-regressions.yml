@@ -3,7 +3,8 @@ name: Performance Regressions
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 6 * * 1"
+    # Run once per month instead of weekly.
+    - cron: "0 6 2 * *"
 
 jobs:
   performance:

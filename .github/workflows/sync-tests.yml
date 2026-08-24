@@ -14,7 +14,8 @@ name: A/V Sync Tests
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 5 * * *"
+    # Run the expensive three-OS matrix once per month instead of daily.
+    - cron: "0 5 2 * *"
   pull_request:
     paths:
       - "crates/recording/**"

@@ -1,6 +1,6 @@
 name: "publish-nightly"
 
-# Builds main as a nightly release and publishes it automatically to the
+# Manually builds main as a nightly release and publishes it to the
 # CrabNebula "nightly" channel (only users who opt into the nightly update
 # channel in Cap's settings receive it; the default channel and the website's
 # `latest` download URLs never see these releases).
@@ -15,8 +15,6 @@ name: "publish-nightly"
 # shipped, and promote-nightly.yml can only promote nightlies users could run.
 
 on:
-  schedule:
-    - cron: "0 3 * * *"
   workflow_dispatch:
     inputs:
       force:
