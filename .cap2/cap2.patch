@@ -1,16 +1,3 @@
-diff --git a/Cargo.lock b/Cargo.lock
-index 88ca9aca6..1f5022cac 100644
---- a/Cargo.lock
-+++ b/Cargo.lock
-@@ -1435,7 +1435,7 @@ dependencies = [
- 
- [[package]]
- name = "cap-desktop"
--version = "0.5.9"
-+version = "0.5.10"
- dependencies = [
-  "aho-corasick",
-  "anyhow",
 diff --git a/apps/desktop/src-tauri/src/auth.rs b/apps/desktop/src-tauri/src/auth.rs
 index 5ae16506d..355968c5c 100644
 --- a/apps/desktop/src-tauri/src/auth.rs
