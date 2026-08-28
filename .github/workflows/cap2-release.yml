@@ -154,12 +154,41 @@ jobs:
       - name: Sign bundle and updater package
         if: steps.guard.outputs.skip != 'true'
         shell: bash
+        env:
+          CAP2_CODESIGN_P12: ${{ secrets.CAP2_CODESIGN_P12 }}
+          CAP2_CODESIGN_P12_PASSWORD: ${{ secrets.CAP2_CODESIGN_P12_PASSWORD }}
         run: |
           APP="target/debug/bundle/macos/Cap 2.app"
           ARCHIVE="target/debug/bundle/macos/Cap.2_${VERSION}_aarch64.app.tar.gz"
           ZIP="$RUNNER_TEMP/Cap-2-${VERSION}-macOS-arm64.zip"
-          codesign --force --deep --sign - "$APP"
+          # Sign with a stable identity, not ad-hoc. macOS keys TCC grants (Screen Recording,
+          # Accessibility) to the signing cert; an ad-hoc signature keys them to the binary hash,
+          # so every update would wipe the grants and re-show the permissions screen.
+          KEYCHAIN=""
+          IDENTITY="-"
+          if [ -n "$CAP2_CODESIGN_P12" ]; then
+            KEYCHAIN="$RUNNER_TEMP/cap2-signing.keychain-db"
+            KCPASS=$(openssl rand -hex 24)
+            printf '%s' "$CAP2_CODESIGN_P12" | base64 -d > "$RUNNER_TEMP/cap2.p12"
+            security create-keychain -p "$KCPASS" "$KEYCHAIN"
+            security set-keychain-settings -lut 3600 "$KEYCHAIN"
+            security unlock-keychain -p "$KCPASS" "$KEYCHAIN"
+            security import "$RUNNER_TEMP/cap2.p12" -k "$KEYCHAIN" -P "$CAP2_CODESIGN_P12_PASSWORD" -T /usr/bin/codesign -A
+            security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KCPASS" "$KEYCHAIN" >/dev/null
+            IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN" | awk 'NR==1 {print $2}')
+            rm -f "$RUNNER_TEMP/cap2.p12"
+            [ -n "$IDENTITY" ] || { echo "::error::no codesigning identity found in CAP2_CODESIGN_P12"; exit 1; }
+          else
+            echo "::warning::CAP2_CODESIGN_P12 unset - ad-hoc signing; macOS permissions will reset after this update"
+          fi
+          sign() { codesign --force --timestamp=none ${KEYCHAIN:+--keychain "$KEYCHAIN"} -s "$IDENTITY" "$1"; }
+          for b in cap-cli cap-exporter cap-muxer; do
+            [ -f "$APP/Contents/MacOS/$b" ] && sign "$APP/Contents/MacOS/$b"
+          done
+          while IFS= read -r -d '' f; do sign "$f"; done < <(find "$APP/Contents/Frameworks" -maxdepth 1 -name '*.framework' -print0 2>/dev/null)
+          sign "$APP"
           codesign --verify --deep --strict "$APP"
+          codesign -d -r- "$APP" 2>&1 | tail -1
           tar -C "$(dirname "$APP")" -czf "$ARCHIVE" "$(basename "$APP")"
           pnpm --dir apps/desktop tauri signer sign "$PWD/$ARCHIVE"
           ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
