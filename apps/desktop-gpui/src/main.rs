@@ -3,6 +3,8 @@
 //! Milestone 1 is the main recording window (compact + expanded) with real
 //! device enumeration. No tauri, no webview: the whole UI is gpui.
 
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 mod app_windows;
 mod assets;
 mod auth;
@@ -10,6 +12,8 @@ mod auth;
 mod camera_bench;
 #[cfg(target_os = "macos")]
 mod camera_blur;
+#[cfg(any(not(target_os = "macos"), test))]
+mod camera_blur_portable;
 mod camera_window;
 mod controls_window;
 mod deeplink;
@@ -58,6 +62,7 @@ mod theme;
 mod transcription;
 mod tray;
 mod ui;
+mod updates;
 mod upload;
 
 use gpui::{App, AppContext as _, Bounds, WindowBounds, WindowOptions, px, size};
@@ -72,6 +77,7 @@ const MAIN_WINDOW_HEIGHT: f32 = 395.;
 /// material `"panel"` on both visual systems in
 /// `apps/desktop/src/utils/macos-window-material.ts`, and the same 16 the
 /// shell paints with (`rounded-[16px]`).
+#[cfg(target_os = "macos")]
 const MAIN_WINDOW_MATERIAL_RADIUS: f64 = 16.;
 
 fn parse_auto_record(spec: &str) -> Option<(main_window::Mode, u64)> {
@@ -170,11 +176,20 @@ fn init_logging() -> Option<tracing_appender::non_blocking::WorkerGuard> {
 }
 
 fn main() {
+    #[cfg(target_os = "linux")]
+    if let Some(config) = cap_utils::linux_package::appimage_alsa_config_path() {
+        // Logging starts a worker thread, so configure the process environment first.
+        unsafe {
+            std::env::set_var("ALSA_CONFIG_PATH", config);
+        }
+    }
+
     let _log_guard = init_logging();
 
     // A relaunch means "run the code I just built": take over from any
     // previous instance still alive in the tray (see `single_instance`).
     single_instance::acquire();
+    store::mark_handoff_session();
 
     platform::install_url_scheme_handler();
     for argument in std::env::args().skip(1) {
@@ -229,7 +244,25 @@ fn main() {
                     // traffic lights -- the whole shell is custom-drawn. In gpui a
                     // `None` titlebar drops NSClosable/NSMiniaturizable/NSResizable
                     // from the style mask, which is the equivalent.
+                    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
                     titlebar: None,
+                    #[cfg(target_os = "windows")]
+                    titlebar: Some(gpui::TitlebarOptions {
+                        title: Some("Cap".into()),
+                        appears_transparent: true,
+                        ..Default::default()
+                    }),
+                    #[cfg(target_os = "linux")]
+                    titlebar: Some(gpui::TitlebarOptions {
+                        title: Some("Cap".into()),
+                        ..Default::default()
+                    }),
+                    #[cfg(target_os = "linux")]
+                    app_id: Some("Cap".into()),
+                    #[cfg(target_os = "linux")]
+                    window_min_size: Some(size(px(MAIN_WINDOW_WIDTH), px(MAIN_WINDOW_HEIGHT))),
+                    #[cfg(target_os = "linux")]
+                    window_decorations: Some(gpui::WindowDecorations::Client),
                     // Stays `Normal` and gets its panel treatment (level 100,
                     // all Spaces) from `platform::apply_panel_behavior` below.
                     // `WindowKind::Floating` is not the answer: it allocates an
@@ -250,9 +283,19 @@ fn main() {
                     move |window, cx| cx.new(|cx| MainWindow::new(session, window, cx))
                 },
             )
-            .expect("failed to open the main window");
+            .inspect_err(|error| tracing::error!("failed to open the main window: {error:#}"));
+        let Ok(window_handle) = window_handle else {
+            cx.quit();
+            return;
+        };
+
+        cx.on_app_quit(|_| async {
+            crate::store::clear_handoff_marker();
+        })
+        .detach();
 
         app_windows::init(window_handle, session, cx);
+        updates::schedule_startup_check(cx);
 
         // The app menu (and with it ⌘W/⌘M/⌘Q) and the status-bar item. Both
         // reach into the window registry, so they come after it -- and the menu
@@ -278,18 +321,6 @@ fn main() {
             if show_onboarding {
                 cx.update(app_windows::open_onboarding);
             }
-        })
-        .detach();
-        // The other half of the Tauri app's hand-off protocol
-        // (`store::handoff_marker_path`): staying up this long is what proves
-        // to it that redirecting here was not a mistake.
-        cx.spawn(async move |cx| {
-            cx.background_executor()
-                .timer(std::time::Duration::from_secs(10))
-                .await;
-            cx.background_executor()
-                .spawn(async { crate::store::clear_handoff_marker() })
-                .await;
         })
         .detach();
         // `CAP_GPUI_AUTO_TRAY` / `CAP_GPUI_TRAY_DUMP`: the tray's harness path.
@@ -345,11 +376,16 @@ fn main() {
                         shadow: true,
                     },
                 );
+                #[cfg(target_os = "linux")]
+                if let Err(error) = platform::remove_x11_window_decorations(window) {
+                    tracing::warn!(%error, "could not remove X11 main window decorations");
+                }
                 tracing::info!(
                     number = platform::window_number(window),
                     "main window opened"
                 );
                 view.start_enumeration(window, cx);
+                view.start_recovery_check(window, cx);
                 view.auto_expand(window, cx);
                 view.auto_open_recent(window, cx);
                 // The AppKit work below must not run inside this update:
@@ -366,6 +402,7 @@ fn main() {
         // `applyMacOSWindowMaterial("panel")` does in the Tauri app. Nothing
         // paints it; the shell paints a translucent tint *over* it, so the
         // window has to be told which one landed.
+        #[cfg(target_os = "macos")]
         cx.spawn(async move |cx| {
             let Some(native) = native_main else {
                 tracing::error!("no NSWindow behind the main window; material not installed");
@@ -384,6 +421,8 @@ fn main() {
             });
         })
         .detach();
+        #[cfg(not(target_os = "macos"))]
+        let _ = native_main;
 
         // `CAP_GPUI_DEBUG_LIGHTS=1`: poll the main window's style mask and
         // standard-button set, logging on change -- pins down *when* AppKit

@@ -54,14 +54,16 @@ impl OSPermission {
         }
     }
 
-    /// The one-line "why we need it" under the row name. Single line on
-    /// purpose: the row's text column is a fixed width and truncates.
     pub fn blurb(self) -> &'static str {
         match self {
-            Self::ScreenRecording => "Captures your screen and windows for recordings.",
-            Self::Accessibility => "Tracks mouse activity for automatic zoom.",
-            Self::Microphone => "Adds your voice to recordings.",
-            Self::Camera => "Shows your webcam in recordings.",
+            Self::ScreenRecording => {
+                "Click Grant to allow when macOS asks, or pick Cap in System Settings if needed. Restart the app after allowing screen recording."
+            }
+            Self::Accessibility => {
+                "During recording, Cap collects mouse activity locally to generate automatic zoom in segments."
+            }
+            Self::Microphone => "This permission is required to record audio in your Caps.",
+            Self::Camera => "This permission is required to record your camera in your Caps.",
         }
     }
 
@@ -71,19 +73,9 @@ impl OSPermission {
         matches!(self, Self::ScreenRecording | Self::Accessibility)
     }
 
-    pub fn icon(self) -> &'static str {
-        match self {
-            // `screen.svg`, not `monitor.svg`: the latter is a multicolor
-            // asset, and `svg()` is alpha-mask-only -- it renders as a blob.
-            Self::ScreenRecording => "icons/screen.svg",
-            Self::Accessibility => "icons/cursor.svg",
-            Self::Microphone => "icons/microphone.svg",
-            Self::Camera => "icons/camera.svg",
-        }
-    }
-
     /// The exact System Settings pane, verbatim from
     /// `macos_permission_settings_url` in the Tauri app.
+    #[cfg(any(target_os = "macos", test))]
     fn settings_url(self) -> &'static str {
         match self {
             Self::ScreenRecording => {
@@ -271,36 +263,68 @@ pub fn open_permission_settings(permission: OSPermission) {
 
 /// Relaunch the app -- the Tauri onboarding offers this after sending the
 /// user to System Settings, because a fresh screen-recording or accessibility
-/// grant often only takes effect in a new process. Spawns a detached shell
-/// that reopens the bundle (or the bare binary in dev) after this process has
-/// had a beat to exit, then quits.
-pub fn relaunch() {
+/// grant often only takes effect in a new process. The replacement must wait
+/// for shutdown: Tauri otherwise sees this process alive and exits without
+/// starting a replacement.
+pub fn relaunch(cx: &mut gpui::App) {
+    static REQUESTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
     let Ok(exe) = std::env::current_exe() else {
         tracing::error!("relaunch: current_exe unavailable");
         return;
     };
 
-    #[cfg(target_os = "macos")]
-    let command = {
-        let bundle = exe
-            .ancestors()
-            .find(|path| path.extension().is_some_and(|ext| ext == "app"))
-            .map(std::path::Path::to_path_buf);
-        match bundle {
-            Some(bundle) => format!("sleep 0.3; /usr/bin/open -n \"{}\"", bundle.display()),
-            None => format!("sleep 0.3; exec \"{}\"", exe.display()),
-        }
-    };
-    #[cfg(not(target_os = "macos"))]
-    let command = format!("sleep 0.3; exec \"{}\"", exe.display());
+    let mut command = relaunch_command(&exe, std::process::id());
+    if let Err(error) = spawn_relaunch(&mut command, &REQUESTED, || crate::menus::quit(cx)) {
+        tracing::error!("relaunch failed to spawn: {error}");
+    }
+}
 
-    match std::process::Command::new("/bin/sh")
-        .arg("-c")
-        .arg(command)
-        .spawn()
-    {
-        Ok(_) => std::process::exit(0),
-        Err(error) => tracing::error!("relaunch failed to spawn: {error}"),
+fn relaunch_command(exe: &std::path::Path, pid: u32) -> std::process::Command {
+    #[cfg(target_os = "macos")]
+    let bundle = exe
+        .ancestors()
+        .find(|path| path.extension().is_some_and(|ext| ext == "app"));
+    #[cfg(not(target_os = "macos"))]
+    let bundle: Option<&std::path::Path> = None;
+
+    let (script, target) = match bundle {
+        Some(bundle) => (
+            r#"while kill -0 "$1" 2>/dev/null; do sleep 0.1; done; exec /usr/bin/open -n "$2""#,
+            bundle,
+        ),
+        None => (
+            r#"while kill -0 "$1" 2>/dev/null; do sleep 0.1; done; exec "$2""#,
+            exe,
+        ),
+    };
+    let mut command = std::process::Command::new("/bin/sh");
+    command
+        .args(["-c", script, "cap-relaunch"])
+        .arg(pid.to_string())
+        .arg(target);
+    command
+}
+
+fn spawn_relaunch(
+    command: &mut std::process::Command,
+    requested: &std::sync::atomic::AtomicBool,
+    quit: impl FnOnce(),
+) -> std::io::Result<Option<std::process::Child>> {
+    use std::sync::atomic::Ordering;
+
+    if requested.swap(true, Ordering::AcqRel) {
+        return Ok(None);
+    }
+    match command.spawn() {
+        Ok(child) => {
+            quit();
+            Ok(Some(child))
+        }
+        Err(error) => {
+            requested.store(false, Ordering::Release);
+            Err(error)
+        }
     }
 }
 
@@ -408,6 +432,95 @@ mod macos {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn relaunch_requests_quit_once_after_spawn_and_allows_retry_after_failure() {
+        use std::{
+            cell::Cell,
+            sync::atomic::{AtomicBool, Ordering},
+        };
+
+        let requested = AtomicBool::new(false);
+        let quits = Cell::new(0);
+        assert!(
+            spawn_relaunch(&mut std::process::Command::new(""), &requested, || {
+                quits.set(quits.get() + 1);
+            })
+            .is_err()
+        );
+        assert!(!requested.load(Ordering::Acquire));
+        assert_eq!(quits.get(), 0);
+
+        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+        command.arg("--list").stdout(std::process::Stdio::null());
+        let mut child = spawn_relaunch(&mut command, &requested, || quits.set(quits.get() + 1))
+            .unwrap()
+            .unwrap();
+        assert!(child.wait().unwrap().success());
+        assert!(
+            spawn_relaunch(&mut command, &requested, || quits.set(quits.get() + 1))
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(quits.get(), 1);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn bundled_relaunch_passes_the_bundle_as_a_literal_argument() {
+        let bundle = std::path::Path::new("/Applications/Cap ' \" $ app.app");
+        let command = relaunch_command(&bundle.join("Contents/MacOS/cap-gpui"), 123);
+        let args = command.get_args().collect::<Vec<_>>();
+        assert_eq!(command.get_program(), "/bin/sh");
+        assert_eq!(args[3], "123");
+        assert_eq!(args[4], bundle.as_os_str());
+        assert!(
+            args[1]
+                .to_str()
+                .unwrap()
+                .ends_with(r#"exec /usr/bin/open -n "$2""#)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn relaunch_waits_for_the_previous_process_and_handles_literal_paths() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root =
+            std::env::temp_dir().join(format!("cap-gpui-relaunch-{}-{nonce}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let executable = root.join("replacement ' \" $ program");
+        let output = root.join("relaunched");
+        std::fs::write(
+            &executable,
+            b"#!/bin/sh\nprintf relaunched > \"$CAP_GPUI_RELAUNCH_TEST_OUTPUT\"\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+
+        let mut previous = std::process::Command::new("/bin/sh")
+            .args(["-c", "read -r line"])
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut replacement = relaunch_command(&executable, previous.id())
+            .env("CAP_GPUI_RELAUNCH_TEST_OUTPUT", &output)
+            .spawn()
+            .unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        assert!(replacement.try_wait().unwrap().is_none());
+        assert!(!output.exists());
+        drop(previous.stdin.take());
+        previous.wait().unwrap();
+        assert!(replacement.wait().unwrap().success());
+        assert_eq!(std::fs::read(&output).unwrap(), b"relaunched");
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     fn raw(
         screen: bool,

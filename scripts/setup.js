@@ -7,6 +7,7 @@ import * as path from "node:path";
 import { env } from "node:process";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { createLinuxBundleConfig } from "./linux-bundle-config.mjs";
 
 const exec = promisify(execCb);
 const execFile = promisify(execFileCb);
@@ -202,21 +203,50 @@ async function main() {
 			path.relative(__root, onnxRuntimePath),
 		)}" }\n`;
 
-		const { stdout: vcInstallDir } = await exec(
-			// biome-ignore lint/suspicious/noTemplateCurlyInString: PowerShell syntax, not JS template literal
-			'$(& "${env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer/vswhere.exe" -latest -property installationPath)',
-			{ shell: "powershell.exe" },
+		const vswherePath = path.join(
+			process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)",
+			"Microsoft Visual Studio",
+			"Installer",
+			"vswhere.exe",
 		);
+		const { stdout: vcInstallDir } = await execFile(vswherePath, [
+			"-latest",
+			"-products",
+			"*",
+			"-requires",
+			"Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+			"-property",
+			"installationPath",
+		]);
+		if (!vcInstallDir.trim())
+			throw new Error(
+				"Visual Studio C++ build tools installation was not found",
+			);
 
 		const libclangPath = path.join(
 			vcInstallDir.trim(),
 			"VC/Tools/LLVM/x64/bin/libclang.dll",
 		);
+		if (!(await fileExists(libclangPath)))
+			throw new Error(
+				`Visual Studio LLVM libclang was not found at ${libclangPath}`,
+			);
 
 		cargoConfigContents += `LIBCLANG_PATH = "${libclangPath.replaceAll(
 			"\\",
 			"/",
 		)}"\n`;
+
+		const cmakePath = path.join(
+			vcInstallDir.trim(),
+			"Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe",
+		);
+		if (await fileExists(cmakePath))
+			cargoConfigContents += `CMAKE = "${cargoConfigPath(cmakePath)}"\n`;
+		else if (!(await findExecutable("cmake")))
+			throw new Error(
+				"CMake was not found. Install the Visual Studio C++ CMake tools component.",
+			);
 	} else if (process.platform === "linux") {
 		const triple = process.env.RUST_TARGET_TRIPLE;
 		if (triple) {
@@ -259,6 +289,7 @@ async function main() {
 				console.log("Extracted native-deps");
 			} else console.log("Using cached native-deps");
 
+			const onnxRuntimePath = await setupLinuxOnnxRuntime();
 			const debLibDir = path.join(nativeDepsDir, "cap-deb-libs");
 			await fs.rm(debLibDir, { recursive: true, force: true }).catch(() => {});
 			await fs.mkdir(debLibDir, { recursive: true });
@@ -279,12 +310,30 @@ async function main() {
 				for (const dir of profileDirs)
 					await fs.copyFile(realPath, path.join(dir, name));
 			}
+			const onnxRuntimeName = path.basename(onnxRuntimePath);
+			const onnxRuntimeNames = [onnxRuntimeName, `${onnxRuntimeName}.1`];
+			for (const name of onnxRuntimeNames) {
+				await fs.copyFile(onnxRuntimePath, path.join(debLibDir, name));
+				for (const dir of profileDirs)
+					await fs.copyFile(onnxRuntimePath, path.join(dir, name));
+			}
+			const bundledLibraries = [
+				...new Set([...sonameLibs, ...onnxRuntimeNames]),
+			];
 			console.log(
-				`Staged ${sonameLibs.length} FFmpeg shared libraries for Linux bundling`,
+				`Staged ${bundledLibraries.length} shared libraries for Linux bundling`,
 			);
-			await writeLinuxTauriConfig(sonameLibs);
+			await writeLinuxTauriConfig(bundledLibraries);
 
+			cargoConfigContents += `ORT_DYLIB_PATH = { relative = true, force = true, value = "${cargoConfigPath(
+				path.relative(__root, onnxRuntimePath),
+			)}" }\n`;
 			cargoConfigContents += `\n[target.${triple}]\nrustflags = ["-C", "link-arg=-Wl,-rpath,$ORIGIN", "-C", "link-arg=-Wl,-rpath,$ORIGIN/../lib/cap"]\n`;
+		} else {
+			const onnxRuntimePath = await setupLinuxOnnxRuntime();
+			cargoConfigContents += `[env]\nORT_DYLIB_PATH = { relative = true, force = true, value = "${cargoConfigPath(
+				path.relative(__root, onnxRuntimePath),
+			)}" }\n`;
 		}
 	}
 
@@ -490,6 +539,50 @@ async function setupWindowsOnnxRuntime() {
 	return outputPath;
 }
 
+async function setupLinuxOnnxRuntime() {
+	const version = "1.24.3";
+	const platformArch = { x86_64: "x64", aarch64: "aarch64" }[arch];
+	if (!platformArch)
+		throw new Error(`Unsupported Linux arch for ONNX Runtime: ${arch}`);
+
+	const archiveName = `onnxruntime-linux-${platformArch}-${version}.tgz`;
+	const archivePath = path.join(targetDir, archiveName);
+	const extractDir = path.join(targetDir, archiveName.replace(/\.tgz$/, ""));
+	const outputDir = path.join(targetDir, "native-deps", "onnxruntime", "lib");
+	const outputPath = path.join(outputDir, "libonnxruntime.so");
+	const markerPath = path.join(outputDir, "asset.txt");
+	const marker = await fs
+		.readFile(markerPath, "utf-8")
+		.then((value) => value.trim())
+		.catch(() => null);
+
+	if (!(await fileExists(archivePath))) {
+		const response = await fetch(
+			`https://github.com/microsoft/onnxruntime/releases/download/v${version}/${archiveName}`,
+		);
+		if (!response.ok)
+			throw new Error(
+				`Failed to download ${archiveName}: HTTP ${response.status}`,
+			);
+		await fs.writeFile(archivePath, Buffer.from(await response.arrayBuffer()));
+		console.log(`Downloaded ${archiveName}`);
+	} else console.log(`Using cached ${archiveName}`);
+
+	if (!(await fileExists(outputPath)) || marker !== archiveName) {
+		await fs.rm(extractDir, { recursive: true, force: true }).catch(() => {});
+		await execFile("tar", ["xf", archivePath, "-C", targetDir]);
+		await fs.mkdir(outputDir, { recursive: true });
+		await fs.copyFile(
+			path.join(extractDir, "lib", "libonnxruntime.so"),
+			outputPath,
+		);
+		await fs.writeFile(markerPath, archiveName);
+		console.log("Prepared ONNX Runtime shared library");
+	} else console.log("Using cached ONNX Runtime shared library");
+
+	return outputPath;
+}
+
 async function setupWindowsDxc() {
 	const asset = {
 		version: "1.9.2607.13",
@@ -618,6 +711,32 @@ async function fileExists(path) {
 }
 
 async function writeLinuxTauriConfig(sonameLibs) {
+	const pluginName = "libasound_module_pcm_pulse.so";
+	const pluginDirectories = [
+		`/usr/lib/${arch}-linux-gnu/alsa-lib`,
+		"/usr/lib64/alsa-lib",
+		"/usr/lib/alsa-lib",
+	];
+	let pulsePlugin;
+	for (const directory of pluginDirectories) {
+		const candidate = path.join(directory, pluginName);
+		if (await fileExists(candidate)) {
+			pulsePlugin = candidate;
+			break;
+		}
+	}
+	if (!pulsePlugin) {
+		throw new Error(
+			"The ALSA PulseAudio plugin is required for Linux bundles. Install libasound2-plugins (Debian/Ubuntu), alsa-plugins-pulseaudio (Fedora), or alsa-plugins (Arch).",
+		);
+	}
+	const appimageLibDir = path.join(
+		__root,
+		"target/native-deps/cap-appimage-libs",
+	);
+	await fs.mkdir(appimageLibDir, { recursive: true });
+	await fs.copyFile(pulsePlugin, path.join(appimageLibDir, pluginName));
+
 	const configPath = path.join(
 		__root,
 		"apps",
@@ -625,19 +744,24 @@ async function writeLinuxTauriConfig(sonameLibs) {
 		"src-tauri",
 		"tauri.linux.conf.json",
 	);
-	const files = {};
-
-	for (const name of sonameLibs.toSorted()) {
-		files[`/usr/lib/cap/${name}`] =
-			`../../../target/native-deps/cap-deb-libs/${name}`;
-	}
+	const baseConfig = JSON.parse(
+		await fs.readFile(
+			path.join(path.dirname(configPath), "tauri.conf.json"),
+			"utf8",
+		),
+	);
+	const config = createLinuxBundleConfig(
+		sonameLibs,
+		baseConfig.bundle.linux.deb.files,
+		baseConfig.bundle.linux.deb.depends,
+	);
 
 	await writeFileIfChanged(
 		configPath,
-		`${JSON.stringify({ bundle: { linux: { deb: { files } } } }, null, "\t")}\n`,
+		`${JSON.stringify(config, null, "\t")}\n`,
 	);
 	console.log(
-		`Generated Linux Tauri deb config with ${sonameLibs.length} shared libraries`,
+		`Generated Linux Tauri package configs with ${sonameLibs.length} shared libraries`,
 	);
 }
 

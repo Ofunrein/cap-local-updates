@@ -9,9 +9,17 @@ import { organizations, signedBaas } from "@cap/database/schema";
 import { serverEnv } from "@cap/env";
 import { STRIPE_SIGNED_BAA_PRICE_IDS, stripe } from "@cap/utils";
 import type { Organisation } from "@cap/web-domain";
-import { and, eq, lt, ne, or } from "drizzle-orm";
+import { and, eq, isNull, lt, ne, or } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import type Stripe from "stripe";
+import {
+	attachPaidBaaCheckout,
+	BAA_ENTITLED_STATUSES,
+	ensureBaaHasPro,
+	hasBaaProWaiver,
+	hasPaidBaaInvoice,
+	isSignedBaaSubscription,
+} from "@/lib/baa/billing";
 import {
 	formatBaaDate,
 	generateSignedBaaPdf,
@@ -59,11 +67,12 @@ export type SignedBaaInput = {
 };
 
 export type SignedBaaStatus = {
-	status: "none" | "active" | "canceled";
+	status: "none" | "paid" | "active" | "canceled" | "processing";
 	signedAt: string | null;
 	entityName: string | null;
 	emailSentAt: string | null;
 	canPurchase: boolean;
+	details: Omit<SignedBaaInput, "signatureDataUrl"> | null;
 };
 
 function getBaaPriceId() {
@@ -106,12 +115,21 @@ export async function getSignedBaaStatus(
 		.where(eq(signedBaas.organizationId, organizationId))
 		.limit(1);
 
-	const status =
-		record?.status === "active"
+	const processing =
+		record?.status === "processing" &&
+		Date.now() - record.updatedAt.getTime() < PROCESSING_STALE_MS;
+	const status = processing
+		? "processing"
+		: record?.status === "active" && record.signedAt
 			? "active"
 			: record?.status === "canceled"
 				? "canceled"
-				: "none";
+				: record?.stripeSubscriptionId &&
+						(record.status === "paid" ||
+							record.status === "active" ||
+							record.status === "processing")
+					? "paid"
+					: "none";
 
 	return {
 		status,
@@ -125,7 +143,47 @@ export async function getSignedBaaStatus(
 				? record.emailSentAt.toISOString()
 				: null,
 		canPurchase: ownerCanPurchaseSignedBaa(user),
+		details: record
+			? {
+					entityName: record.entityName,
+					entityType: record.entityType,
+					entityAddress: record.entityAddress,
+					signerName: record.signerName,
+					signerTitle: record.signerTitle,
+					noticesEmail: record.noticesEmail,
+				}
+			: null,
 	};
+}
+
+export async function confirmSignedBaaPayment(
+	organizationId: Organisation.OrganisationId,
+	sessionId: string,
+): Promise<SignedBaaStatus> {
+	const { user } = await getOwnerContext(organizationId);
+	if (!sessionId.startsWith("cs_") || sessionId.length > 255) {
+		throw new Error("Invalid payment confirmation. Please contact support.");
+	}
+	const session = await stripe().checkout.sessions.retrieve(sessionId);
+	const subscriptionId =
+		typeof session.subscription === "string"
+			? session.subscription
+			: session.subscription?.id;
+	if (!subscriptionId) {
+		throw new Error("No BAA subscription was found for this payment.");
+	}
+	const subscription = await stripe().subscriptions.retrieve(subscriptionId);
+	const record = await attachPaidBaaCheckout(session, subscription, {
+		owner: user,
+		organizationId,
+	});
+	if (!record) {
+		throw new Error(
+			"We couldn't confirm a paid BAA for this organization. Please retry once payment completes, or contact support. Do not pay again.",
+		);
+	}
+	revalidatePath("/dashboard/settings/organization/billing");
+	return getSignedBaaStatus(organizationId);
 }
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -288,37 +346,26 @@ export async function purchaseSignedBaa(
 	organizationId: Organisation.OrganisationId,
 	input: SignedBaaInput,
 ): Promise<{ success: true; emailSent: boolean }> {
+	return completeSignedBaa(organizationId, input, false);
+}
+
+export async function signPaidBaa(
+	organizationId: Organisation.OrganisationId,
+	input: SignedBaaInput,
+): Promise<{ success: true; emailSent: boolean }> {
+	return completeSignedBaa(organizationId, input, true);
+}
+
+async function completeSignedBaa(
+	organizationId: Organisation.OrganisationId,
+	input: SignedBaaInput,
+	requirePaid: boolean,
+): Promise<{ success: true; emailSent: boolean }> {
 	const details = validateInput(input);
 	const { user } = await getOwnerContext(organizationId);
 	const priceId = getBaaPriceId();
 
-	const customerId = user.stripeCustomerId;
-	if (
-		!customerId ||
-		!user.stripeSubscriptionId ||
-		!ownerCanPurchaseSignedBaa(user)
-	) {
-		throw new Error(
-			"Your organization needs an active Cap Pro subscription before adding the Signed BAA add-on.",
-		);
-	}
-
-	let liveProSubscription: Stripe.Subscription;
-	try {
-		liveProSubscription = await stripe().subscriptions.retrieve(
-			user.stripeSubscriptionId,
-		);
-	} catch {
-		throw new Error(
-			"Your organization needs an active Cap Pro subscription before adding the Signed BAA add-on.",
-		);
-	}
-	if (!CAP_PRO_STATUSES.has(liveProSubscription.status)) {
-		throw new Error(
-			"Your organization needs an active Cap Pro subscription before adding the Signed BAA add-on.",
-		);
-	}
-
+	const customerId = user.stripeCustomerId ?? "";
 	const [existing] = await db()
 		.select()
 		.from(signedBaas)
@@ -328,11 +375,68 @@ export async function purchaseSignedBaa(
 	if (existing?.status === "active" && existing.emailSentAt) {
 		throw new Error("A Signed BAA is already active for this organization.");
 	}
+	let paidSubscription: Stripe.Subscription | null = null;
+	if (existing?.stripeSubscriptionId && existing.status !== "canceled") {
+		paidSubscription = await stripe().subscriptions.retrieve(
+			existing.stripeSubscriptionId,
+			{ expand: ["latest_invoice"] },
+		);
+		if (
+			!isSignedBaaSubscription(paidSubscription) ||
+			!BAA_ENTITLED_STATUSES.has(paidSubscription.status) ||
+			(!existing.signedAt &&
+				existing.status !== "paid" &&
+				!hasPaidBaaInvoice(paidSubscription))
+		) {
+			throw new Error(
+				"The existing BAA payment is not confirmed. Please contact support; no additional payment was taken.",
+			);
+		}
+	}
+	if (requirePaid && !paidSubscription) {
+		throw new Error("A confirmed BAA payment is required before signing.");
+	}
+
+	const proRequirementWaived =
+		existing?.userId === user.id &&
+		paidSubscription &&
+		hasBaaProWaiver(paidSubscription, existing);
+	if (!proRequirementWaived) {
+		if (
+			!customerId ||
+			!user.stripeSubscriptionId ||
+			!ownerCanPurchaseSignedBaa(user)
+		) {
+			throw new Error(
+				"Your organization needs an active Cap Pro subscription before adding the Signed BAA add-on.",
+			);
+		}
+
+		let liveProSubscription: Stripe.Subscription;
+		try {
+			liveProSubscription = await stripe().subscriptions.retrieve(
+				user.stripeSubscriptionId,
+			);
+		} catch {
+			throw new Error(
+				"Your organization needs an active Cap Pro subscription before adding the Signed BAA add-on.",
+			);
+		}
+		if (
+			!CAP_PRO_STATUSES.has(liveProSubscription.status) ||
+			isSignedBaaSubscription(liveProSubscription)
+		) {
+			throw new Error(
+				"Your organization needs an active Cap Pro subscription before adding the Signed BAA add-on.",
+			);
+		}
+	}
 
 	const { signatureDataUrl, ...contractFields } = details;
 	const recordFields = { ...contractFields, signatureData: signatureDataUrl };
 
 	const isEmailRetry = existing?.status === "active";
+	const claimedAt = new Date(Math.floor(Date.now() / 1000) * 1000);
 	let recordId: string;
 	if (existing) {
 		recordId = existing.id;
@@ -341,6 +445,7 @@ export async function purchaseSignedBaa(
 			.update(signedBaas)
 			.set({
 				status: "processing",
+				updatedAt: claimedAt,
 				userId: user.id,
 				...recordFields,
 				// A stale ID from a canceled subscription would stop the
@@ -350,12 +455,16 @@ export async function purchaseSignedBaa(
 					: {
 							signedAt: null,
 							emailSentAt: null,
-							stripeSubscriptionId: null,
+							stripeSubscriptionId: paidSubscription?.id ?? null,
 						}),
 			})
 			.where(
 				and(
 					eq(signedBaas.id, existing.id),
+					eq(signedBaas.status, existing.status),
+					existing.stripeSubscriptionId
+						? eq(signedBaas.stripeSubscriptionId, existing.stripeSubscriptionId)
+						: isNull(signedBaas.stripeSubscriptionId),
 					or(
 						ne(signedBaas.status, "processing"),
 						lt(signedBaas.updatedAt, staleBefore),
@@ -377,6 +486,7 @@ export async function purchaseSignedBaa(
 					organizationId,
 					userId: user.id,
 					status: "processing",
+					updatedAt: claimedAt,
 					...recordFields,
 				});
 		} catch {
@@ -386,15 +496,51 @@ export async function purchaseSignedBaa(
 		}
 	}
 
+	const recordIdentity = { id: recordId, organizationId, userId: user.id };
 	const revertToPending = async () => {
 		// The subscription.created webhook can associate and activate the record
 		// mid-flight when Stripe's create response was lost, so the revert must
 		// only touch rows still claimed by this purchase attempt.
+		let status = paidSubscription
+			? "paid"
+			: existing?.status === "canceled"
+				? "canceled"
+				: "pending";
+		if (!paidSubscription) {
+			const [current] = await db()
+				.select({ subscriptionId: signedBaas.stripeSubscriptionId })
+				.from(signedBaas)
+				.where(eq(signedBaas.id, recordId))
+				.limit(1);
+			if (current?.subscriptionId) {
+				try {
+					const recovered = await stripe().subscriptions.retrieve(
+						current.subscriptionId,
+						{ expand: ["latest_invoice"] },
+					);
+					if (
+						isSignedBaaSubscription(recovered) &&
+						BAA_ENTITLED_STATUSES.has(recovered.status) &&
+						hasPaidBaaInvoice(recovered)
+					) {
+						if (!(await ensureBaaHasPro(user, recovered, recordIdentity)))
+							return;
+						status = "paid";
+					}
+				} catch {
+					return;
+				}
+			}
+		}
 		await db()
 			.update(signedBaas)
-			.set({ status: existing?.status === "canceled" ? "canceled" : "pending" })
+			.set({ status })
 			.where(
-				and(eq(signedBaas.id, recordId), eq(signedBaas.status, "processing")),
+				and(
+					eq(signedBaas.id, recordId),
+					eq(signedBaas.status, "processing"),
+					eq(signedBaas.updatedAt, claimedAt),
+				),
 			);
 	};
 
@@ -417,17 +563,8 @@ export async function purchaseSignedBaa(
 		);
 	}
 
-	let subscription: Stripe.Subscription | null = null;
-	try {
-		subscription = await createBaaSubscription({
-			customerId,
-			organizationId,
-			userId: user.id,
-			recordId,
-			proSubscriptionId: user.stripeSubscriptionId,
-			priceId,
-		});
-	} catch (error) {
+	let subscription: Stripe.Subscription | null = paidSubscription;
+	if (!subscription) {
 		try {
 			subscription = await createBaaSubscription({
 				customerId,
@@ -437,9 +574,20 @@ export async function purchaseSignedBaa(
 				proSubscriptionId: user.stripeSubscriptionId,
 				priceId,
 			});
-		} catch (retryError) {
-			await revertToPending();
-			throwSignedBaaStripeError(retryError ?? error);
+		} catch (error) {
+			try {
+				subscription = await createBaaSubscription({
+					customerId,
+					organizationId,
+					userId: user.id,
+					recordId,
+					proSubscriptionId: user.stripeSubscriptionId,
+					priceId,
+				});
+			} catch (retryError) {
+				await revertToPending();
+				throwSignedBaaStripeError(retryError ?? error);
+			}
 		}
 	}
 
@@ -449,20 +597,78 @@ export async function purchaseSignedBaa(
 			"We couldn't confirm the Signed BAA subscription. Please try again or contact support if you were charged.",
 		);
 	}
+	const association = await db()
+		.update(signedBaas)
+		.set({ stripeSubscriptionId: subscription.id, updatedAt: claimedAt })
+		.where(
+			and(
+				eq(signedBaas.id, recordId),
+				eq(signedBaas.status, "processing"),
+				eq(signedBaas.updatedAt, claimedAt),
+				or(
+					isNull(signedBaas.stripeSubscriptionId),
+					eq(signedBaas.stripeSubscriptionId, subscription.id),
+				),
+			),
+		);
+	const cancelIfUnlinked = async () => {
+		const [current] = await db()
+			.select()
+			.from(signedBaas)
+			.where(eq(signedBaas.id, recordId))
+			.limit(1);
+		if (
+			!paidSubscription &&
+			current?.stripeSubscriptionId !== subscription.id
+		) {
+			await stripe().subscriptions.cancel(subscription.id);
+		}
+		return current;
+	};
+	if (getAffectedRows(association) === 0) {
+		const current = await cancelIfUnlinked();
+		if (
+			current?.stripeSubscriptionId !== subscription.id ||
+			current.status !== "processing" ||
+			current.updatedAt.getTime() !== claimedAt.getTime()
+		) {
+			throw new Error(
+				"The BAA changed while confirming payment. Please refresh or contact support; do not pay again.",
+			);
+		}
+	}
+	if (!(await ensureBaaHasPro(user, subscription, recordIdentity))) {
+		throw new Error(
+			"Cap Pro ended before the BAA could be signed. The BAA subscription has been canceled; please contact support about your payment.",
+		);
+	}
 
-	await db()
+	const finalized = await db()
 		.update(signedBaas)
 		.set({
 			status: "active",
 			stripeSubscriptionId: subscription.id,
 			signedAt,
 		})
-		.where(eq(signedBaas.id, recordId));
+		.where(
+			and(
+				eq(signedBaas.id, recordId),
+				eq(signedBaas.status, "processing"),
+				eq(signedBaas.updatedAt, claimedAt),
+				eq(signedBaas.stripeSubscriptionId, subscription.id),
+			),
+		);
+	if (getAffectedRows(finalized) === 0) {
+		await cancelIfUnlinked();
+		throw new Error(
+			"The BAA changed while signing. Please refresh or contact support; do not pay again.",
+		);
+	}
 
 	let emailSent = Boolean(existing?.emailSentAt);
 	if (!emailSent) {
 		try {
-			await sendEmail({
+			const delivery = await sendEmail({
 				email: user.email,
 				cc: [
 					BAA_NOTICE_EMAIL,
@@ -487,6 +693,12 @@ export async function purchaseSignedBaa(
 				],
 				idempotencyKey: `signed-baa-email-${recordId}`,
 			});
+			if (!delivery?.data?.id || delivery.error) {
+				throw new Error(
+					delivery?.error?.message ??
+						"The email provider did not confirm delivery.",
+				);
+			}
 			await db()
 				.update(signedBaas)
 				.set({ emailSentAt: new Date() })
@@ -498,6 +710,7 @@ export async function purchaseSignedBaa(
 	}
 
 	revalidatePath("/dashboard/settings/organization");
+	revalidatePath("/dashboard/settings/organization/billing");
 
 	return { success: true, emailSent };
 }

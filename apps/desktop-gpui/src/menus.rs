@@ -97,6 +97,13 @@ pub fn init(cx: &mut App) {
     cx.on_action(|_: &Minimize, cx: &mut App| with_key_native(cx, platform::minimize_native));
     cx.on_action(|_: &Zoom, cx: &mut App| with_key_native(cx, platform::zoom_native));
     cx.on_action(|_: &ToggleFullscreen, cx: &mut App| {
+        #[cfg(target_os = "windows")]
+        if let Some(handle) = cx.active_window() {
+            cx.defer(move |cx| {
+                let _ = handle.update(cx, |_, window, _| window.toggle_fullscreen());
+            });
+        }
+        #[cfg(not(target_os = "windows"))]
         with_key_native(cx, platform::toggle_fullscreen_native)
     });
 
@@ -287,10 +294,6 @@ pub fn close_window_by_handle(handle: gpui::AnyWindowHandle, cx: &mut App) {
 /// quit waits for the session to come back to `Idle` (bounded, so a wedged
 /// finalize cannot make the app unquittable).
 pub fn quit(cx: &mut App) {
-    // Reaching a deliberate quit is proof enough that this build came up, even
-    // if it happens inside the marker's ten-second window.
-    crate::store::clear_handoff_marker();
-
     let session = RecordingSession::global(cx);
     if session.read(cx).phase == Phase::Idle {
         cx.quit();

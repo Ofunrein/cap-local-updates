@@ -5,6 +5,12 @@
 
 
 export const commands = {
+async animatedGradientCatalog() : Promise<AnimatedGradientCatalog> {
+    return await TAURI_INVOKE("animated_gradient_catalog");
+},
+async randomAnimatedGradient() : Promise<AnimatedGradientConfig> {
+    return await TAURI_INVOKE("random_animated_gradient");
+},
 async setMicInput(label: string | null) : Promise<null> {
     return await TAURI_INVOKE("set_mic_input", { label });
 },
@@ -591,6 +597,13 @@ videoImportProgress: "video-import-progress"
 /** user-defined types **/
 
 export type Action = { type: "copyToClipboard"; source?: ClipboardSource } | { type: "saveToLocation"; dir: string; filenameTemplate?: string | null } | { type: "export"; profile: ExportProfile; destination?: ExportDestination } | { type: "upload"; organizationId?: string | null; copyLink?: boolean; openInBrowser?: boolean } | { type: "revealInFileManager" } | { type: "openFile" } | { type: "runCommand"; program: string; args?: string[]; cwd?: string | null; env?: { [key in string]: string }; useShell?: boolean } | { type: "webhook"; url: string; method?: string; headers?: { [key in string]: string }; bodyTemplate?: string | null } | { type: "recognizeTextToClipboard" } | { type: "notify"; titleTemplate?: string; bodyTemplate?: string } | { type: "openEditor" } | { type: "skipEditor" } | { type: "applyPreset"; name: string } | { type: "deleteLocalFiles" }
+export type AnimatedGradientCatalog = { defaultConfig: AnimatedGradientConfig; templates: AnimatedGradientPreset[]; controls: AnimatedGradientControl[] }
+export type AnimatedGradientConfig = { colorStops: AnimatedGradientStop[]; direction: number; flowScale: number; flowStrength: number; curvature: number; detail: number; relief: number; light: number; shade: number; ripples: number; grainAmount: number; grainSize: number; exposure: number; contrast: number; vibrance: number; motionSpeed: number; seed: number }
+export type AnimatedGradientControl = { key: AnimatedGradientParameter; label: string; group: string; min: number; max: number; step: number }
+export type AnimatedGradientLibrary = { presets: AnimatedGradientPreset[]; lastUsed: AnimatedGradientConfig | null; selected: boolean }
+export type AnimatedGradientParameter = "direction" | "flowScale" | "flowStrength" | "curvature" | "detail" | "relief" | "light" | "shade" | "ripples" | "grainAmount" | "grainSize" | "exposure" | "contrast" | "vibrance" | "motionSpeed"
+export type AnimatedGradientPreset = { id: string; name: string; config: AnimatedGradientConfig }
+export type AnimatedGradientStop = { color: [number, number, number]; position: number }
 export type Annotation = { id: string; type: AnnotationType; x: number; y: number; width: number; height: number; strokeColor: string; strokeWidth: number; fillColor: string; opacity: number; rotation: number; text: string | null; maskType?: MaskType | null; maskLevel?: number | null; points?: ([number, number])[] | null }
 export type AnnotationType = "arrow" | "circle" | "rectangle" | "text" | "mask" | "draw"
 export type AppTheme = "system" | "light" | "dark"
@@ -669,7 +682,7 @@ frame: FrameConfiguration | null;
  * something the capture really did hide, and the two are independent.
  */
 notch: NotchConfiguration | null }
-export type BackgroundSource = { type: "wallpaper"; path: string | null } | { type: "image"; path: string | null } | { type: "color"; value: [number, number, number]; alpha?: number } | { type: "gradient"; from: [number, number, number]; to: [number, number, number]; angle?: number; noise_intensity?: number | null; noise_scale?: number | null; animated?: boolean | null; animation_speed?: number | null }
+export type BackgroundSource = { type: "wallpaper"; path: string | null } | { type: "image"; path: string | null } | { type: "color"; value: [number, number, number]; alpha?: number } | { type: "gradient"; from: [number, number, number]; to: [number, number, number]; angle?: number; noise_intensity?: number | null; noise_scale?: number | null; animated?: boolean | null; animation_speed?: number | null } | { type: "animatedGradient"; config: AnimatedGradientConfig }
 export type BorderConfiguration = { enabled: boolean; width: number; color: [number, number, number]; opacity: number }
 export type Camera = { hide: boolean; mirror: boolean; position: CameraPosition; 
 /**
@@ -902,9 +915,10 @@ export type CurrentRecording = { target: CurrentRecordingTarget; mode: Recording
 export type CurrentRecordingChanged = null
 export type CurrentRecordingTarget = { window: { id: WindowId; bounds: LogicalBounds | null } } | { screen: { id: DisplayId } } | { area: { screen: DisplayId; bounds: LogicalBounds } } | "camera"
 export type CursorAnimationStyle = "slow" | "smooth" | "mellow" | "fast" | "custom"
-export type CursorConfiguration = { hide: boolean; hideWhenIdle: boolean; hideWhenIdleDelay: number; size: number; type: CursorType; animationStyle: CursorAnimationStyle; tension: number; mass: number; friction: number; raw: boolean; motionBlur: number; useSvg: boolean; rotationAmount?: number; baseRotation?: number; clickSpring?: ClickSpringConfig | null; stopMovementInLastSeconds?: number | null }
+export type CursorConfiguration = { hide: boolean; hideWhenIdle: boolean; hideWhenIdleDelay: number; size: number; type: CursorType; animationStyle: CursorAnimationStyle; tension: number; mass: number; friction: number; raw: boolean; motionBlur: number; useSvg: boolean; rotationAmount?: number; baseRotation?: number; clickSpring?: ClickSpringConfig | null; stopMovementInLastSeconds?: number | null; ripple?: CursorRippleConfig }
 export type CursorMeta = { imagePath: string; hotspot: XY<number>; shape?: string | null }
-export type CursorType = "auto" | "pointer" | "circle"
+export type CursorRippleConfig = { enabled: boolean; color: [number, number, number]; strength: number; size: number; duration: number }
+export type CursorType = "auto" | "pointer" | "circle" | "macos" | "tahoe" | "windows"
 export type Cursors = { [key in string]: string } | { [key in string]: CursorMeta }
 export type DeviceOrModelID = { DeviceID: string } | { ModelID: ModelIDType }
 export type DevicesUpdated = { cameras: CameraInfo[]; microphones: string[]; permissions: OSPermissionsCheck }

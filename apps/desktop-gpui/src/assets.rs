@@ -39,6 +39,9 @@ const FONTS: &[(&str, &[u8])] = assets!("fonts":
 /// illustration would come out as a filled silhouette.
 const ICONS: &[(&str, &[u8])] = assets!("icons":
     "app-window-mac.svg",
+    "app-window.svg",
+    "ban.svg",
+    "globe.svg",
     "area.svg",
     "arrows.svg",
     "audio-on.svg",
@@ -47,6 +50,10 @@ const ICONS: &[(&str, &[u8])] = assets!("icons":
     "camera.svg",
     "caret-down.svg",
     "captions.svg",
+    "caption-close-windows.svg",
+    "caption-maximize-windows.svg",
+    "caption-minimize-windows.svg",
+    "caption-restore-windows.svg",
     "circle.svg",
     "check.svg",
     "clapperboard.svg",
@@ -164,6 +171,7 @@ const ICONS: &[(&str, &[u8])] = assets!("icons":
     "maximize.svg",
     "moon.svg",
     "mouse-pointer-2.svg",
+    "mouse-pointer-click.svg",
     "move.svg",
     "move-right.svg",
     "palette.svg",
@@ -176,6 +184,7 @@ const ICONS: &[(&str, &[u8])] = assets!("icons":
     "sparkles.svg",
     "timer.svg",
     "volume-2.svg",
+    "volume-x.svg",
     "diamond.svg",
     "x-mark.svg",
     "zap.svg",
@@ -310,6 +319,7 @@ mod tests {
         include_str!("mode_select_window.rs"),
         include_str!("teleprompter_window.rs"),
         include_str!("editor_window.rs"),
+        include_str!("editor_window/frame.rs"),
         // The timeline's nine track glyphs and its scene-mode icons are named
         // in the strip's own module, not in the window that hosts it.
         include_str!("editor_timeline.rs"),
@@ -319,6 +329,9 @@ mod tests {
         // The five later tabs, the colour-grade section and the eight segment
         // panels each name their own glyphs.
         include_str!("editor_tabs.rs"),
+        // The cursor tab's style picker and ripple section live one directory
+        // down, and the ripple field names its own glyph.
+        include_str!("editor_sidebar/cursor.rs"),
         include_str!("editor_color.rs"),
         include_str!("editor_panels.rs"),
         // The crop dialog's ratio / Full / Reset glyphs and the chevron

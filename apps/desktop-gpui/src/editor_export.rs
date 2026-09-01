@@ -131,6 +131,7 @@ impl ExportResolution {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExportPhase {
     Idle,
+    ChoosingFile,
     Starting,
     Rendering,
     Copying,
@@ -140,11 +141,15 @@ pub enum ExportPhase {
 }
 
 impl ExportPhase {
-    fn is_busy(self) -> bool {
+    pub(crate) fn is_busy(self) -> bool {
         matches!(
             self,
-            Self::Starting | Self::Rendering | Self::Copying | Self::Uploading
+            Self::ChoosingFile | Self::Starting | Self::Rendering | Self::Copying | Self::Uploading
         )
+    }
+
+    fn shows_progress(self) -> bool {
+        !matches!(self, Self::Idle | Self::ChoosingFile)
     }
 }
 
@@ -424,7 +429,8 @@ impl EditorWindow {
             compression_bpp: ui.bpp(),
             cursor_only: ui.cursor_only,
         };
-        let force = ui.force_ffmpeg;
+        // Match Windows editor playback: a fresh Media Foundation preview seek can return black.
+        let force = cfg!(target_os = "windows") || ui.force_ffmpeg;
         ui.preview_error = None;
         ui.preview_task = Some(cx.spawn_in(window, async move |this, cx| {
             cx.background_executor()
@@ -473,7 +479,7 @@ impl EditorWindow {
         }));
     }
 
-    fn start_export(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn start_export(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let pretty_name = self
             .summary()
             .map(|summary| summary.pretty_name.clone())
@@ -513,9 +519,15 @@ impl EditorWindow {
         let project = self.project.clone();
         ui.cancel.store(false, Ordering::Relaxed);
         let cancel = ui.cancel.clone();
-        ui.phase = ExportPhase::Starting;
+        ui.phase = if destination == ExportDestination::File {
+            ExportPhase::ChoosingFile
+        } else {
+            ExportPhase::Starting
+        };
         ui.error = None;
         ui.rendered = 0;
+        ui.total_frames = 0;
+        ui.output_path = None;
         cx.notify();
 
         ui.export_task = Some(cx.spawn_in(window, async move |this, cx| {
@@ -528,7 +540,9 @@ impl EditorWindow {
                     "mp4"
                 };
                 let default = format!("{pretty_name}.{ext}");
-                let chosen = platform::save_file_panel(&default, &[ext]);
+                let chosen = std::env::var_os("CAP_GPUI_AUTO_EXPORT")
+                    .map(PathBuf::from)
+                    .or_else(|| platform::save_file_panel(&default, &[ext]));
                 if chosen.is_none() {
                     let _ = this.update(cx, |this, cx| {
                         if let Some(ui) = this.export.as_mut() {
@@ -543,12 +557,22 @@ impl EditorWindow {
                 None
             };
 
-            let _ = this.update(cx, |this, cx| {
-                if let Some(ui) = this.export.as_mut() {
-                    ui.phase = ExportPhase::Rendering;
+            let started = this.update(cx, |this, cx| {
+                let Some(ui) = this.export.as_mut() else {
+                    return false;
+                };
+                if cancel.load(Ordering::Relaxed) {
+                    ui.phase = ExportPhase::Idle;
+                    cx.notify();
+                    return false;
                 }
+                ui.phase = ExportPhase::Starting;
                 cx.notify();
+                true
             });
+            if !started.unwrap_or(false) {
+                return;
+            }
 
             let (progress_tx, progress_rx) = flume::unbounded::<(u32, u32)>();
             let export_cancel = cancel.clone();
@@ -593,6 +617,7 @@ impl EditorWindow {
 
             match export.await {
                 Ok(Ok(path)) => {
+                    tracing::info!(path = %path.display(), "editor export completed");
                     if destination == ExportDestination::Clipboard {
                         let _ = this.update(cx, |this, cx| {
                             if let Some(ui) = this.export.as_mut() {
@@ -633,6 +658,7 @@ impl EditorWindow {
                     }
                 }
                 Ok(Err(error)) => {
+                    tracing::error!(error, "editor export failed");
                     let cancelled = error == "Export cancelled" || cancel.load(Ordering::Relaxed);
                     let _ = this.update(cx, |this, cx| {
                         if let Some(ui) = this.export.as_mut() {
@@ -769,6 +795,7 @@ impl EditorWindow {
         ui.share_link = None;
         ui.upload_progress = 0.0;
         ui.rendered = 0;
+        ui.total_frames = 0;
         cx.notify();
 
         ui.export_task = Some(cx.spawn_in(window, async move |this, cx| {
@@ -989,8 +1016,11 @@ impl EditorWindow {
                     .child(self.render_export_preview_pane(ui))
                     .child(self.render_export_sidebar(ui, cx)),
             )
-            .when(ui.phase != ExportPhase::Idle, |this| {
+            .when(ui.phase.shows_progress(), |this| {
                 this.child(self.render_export_overlay(ui, cx))
+            })
+            .when(ui.phase == ExportPhase::ChoosingFile, |this| {
+                this.child(div().absolute().inset_0().occlude())
             })
             .into_any_element()
     }
@@ -1248,6 +1278,7 @@ impl EditorWindow {
                                 ui::ButtonSize::Lg,
                             )
                             .label(label)
+                            .disabled(ui.phase.is_busy())
                             .full_width()
                             .on_click(cx.listener(|this, _, window, cx| this.start_export(window, cx)));
                             if let Some(icon) = icon {
@@ -1766,7 +1797,7 @@ impl EditorWindow {
             ExportPhase::Done if ui.destination == ExportDestination::Link => "Upload complete",
             ExportPhase::Done => "Export complete",
             ExportPhase::Failed => "Export failed",
-            ExportPhase::Idle => "",
+            ExportPhase::Idle | ExportPhase::ChoosingFile => "",
         };
 
         let mut wash: Hsla = theme.gray(1);
@@ -2067,5 +2098,36 @@ async fn run_export(
         }
         .export(base, progress)
         .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ExportPhase;
+
+    #[test]
+    fn choosing_a_file_blocks_duplicate_exports_without_showing_progress() {
+        assert!(ExportPhase::ChoosingFile.is_busy());
+        assert!(!ExportPhase::ChoosingFile.shows_progress());
+    }
+
+    #[test]
+    fn cancelling_file_selection_returns_to_the_idle_page() {
+        assert!(!ExportPhase::Idle.is_busy());
+        assert!(!ExportPhase::Idle.shows_progress());
+    }
+
+    #[test]
+    fn export_work_and_results_remain_visible() {
+        for phase in [
+            ExportPhase::Starting,
+            ExportPhase::Rendering,
+            ExportPhase::Copying,
+            ExportPhase::Uploading,
+            ExportPhase::Done,
+            ExportPhase::Failed,
+        ] {
+            assert!(phase.shows_progress());
+        }
     }
 }

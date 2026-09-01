@@ -47,9 +47,10 @@ use std::{
     time::{Duration, Instant},
 };
 
+use cap_cursor_info::CursorFamily;
 use cap_editor::{EditorFrameOutput, EditorInstance, EditorState};
 use cap_project::{
-    ClipSpeedAudioMode, ProjectConfiguration, RecordingMeta, RecordingMetaInner,
+    ClipSpeedAudioMode, Cursors, ProjectConfiguration, RecordingMeta, RecordingMetaInner,
     StudioRecordingMeta, TimelineConfiguration, XY,
 };
 use cap_rendering::{FrameLayout, ProjectRecordingsMeta, RenderedFrame};
@@ -72,6 +73,8 @@ use crate::{
     theme::Theme,
     ui,
 };
+
+mod frame;
 
 // ---------------------------------------------------------------------------
 // Window geometry
@@ -204,6 +207,15 @@ pub fn letterbox(container: (f32, f32), frame: (f32, f32)) -> (f32, f32) {
     }
 }
 
+fn frame_layout_requires_editor_invalidation(
+    first_frame: bool,
+    playing: bool,
+    layout_changed: bool,
+    cleared_drag_rect: bool,
+) -> bool {
+    first_frame || cleared_drag_rect || (!playing && layout_changed)
+}
+
 // ---------------------------------------------------------------------------
 // Loading a project
 // ---------------------------------------------------------------------------
@@ -213,6 +225,7 @@ pub fn letterbox(container: (f32, f32), frame: (f32, f32)) -> (f32, f32) {
 /// whose disabled state is data-driven.
 #[derive(Debug, Clone)]
 pub struct ProjectSummary {
+    pub recordings: Arc<ProjectRecordingsMeta>,
     /// `meta().prettyName` -- the header's editable name.
     pub pretty_name: String,
     /// Every track the timeline draws, derived from the bundle's own
@@ -227,6 +240,10 @@ pub struct ProjectSummary {
     /// The cursor tab is disabled on `!meta().hasRecordedCursorData`
     /// (`ConfigSidebar.tsx:610`).
     pub has_cursor_data: bool,
+    /// The asset family the recorded cursor shapes belong to, which the style
+    /// picker highlights as "Recorded" and falls back to while the project's
+    /// own type is `Auto`.
+    pub recorded_cursor_family: Option<CursorFamily>,
     /// `editorInstance.recordings.segments[i].display.duration` -- the ceiling
     /// a clip's end handle trims out to (`TL/ClipTrack.tsx:1160-1162`).
     pub clip_display_durations: Vec<f64>,
@@ -262,8 +279,7 @@ pub struct ProjectSummary {
 ///   unwinds out of the renderer's task. It is a plain synchronous function,
 ///   so running it here under `catch_unwind` -- on a background thread, in
 ///   Rust-only frames, never across an objc boundary -- converts the panic
-///   into a message. `EditorInstance::new` then repeats the same construction
-///   with input already known to be good.
+///   into a message. The validated metadata is reused by `EditorInstance`.
 ///
 /// Blocking; callers run it on the background executor.
 pub fn preflight(path: &std::path::Path) -> Result<ProjectSummary, String> {
@@ -314,6 +330,7 @@ pub fn preflight(path: &std::path::Path) -> Result<ProjectSummary, String> {
         "This recording's video tracks could not be opened. The bundle looks damaged.".to_string()
     })?
     .map_err(|error| format!("Failed to read this recording's media: {error}"))?;
+    let recordings = Arc::new(recordings);
 
     // `RecordingMeta::project_config()` loads `project-config.json` (falling
     // back to the default) and overlays `captions.json` -- the same read
@@ -358,11 +375,13 @@ pub fn preflight(path: &std::path::Path) -> Result<ProjectSummary, String> {
     let duration = timeline.total_duration;
 
     Ok(ProjectSummary {
+        recordings: recordings.clone(),
         pretty_name: meta.pretty_name.clone(),
         timeline,
         duration: duration.max(0.0),
         has_camera,
         has_cursor_data: has_recorded_cursor_data(&meta, studio.as_ref()),
+        recorded_cursor_family: recorded_cursor_family(studio.as_ref()),
         clip_display_durations: recordings
             .segments
             .iter()
@@ -427,6 +446,25 @@ fn has_recorded_cursor_data(meta: &RecordingMeta, studio: &StudioRecordingMeta) 
                 .is_some_and(|cursor| meta.path(cursor).exists())
         }),
     }
+}
+
+/// The family the recording's own cursor shapes belong to.
+///
+/// Keyed by cursor id so the answer does not depend on `HashMap` iteration
+/// order: a bundle whose shapes span two families would otherwise pick a
+/// different card between two opens of the same recording.
+fn recorded_cursor_family(studio: &StudioRecordingMeta) -> Option<CursorFamily> {
+    let StudioRecordingMeta::MultipleSegments { inner } = studio else {
+        return None;
+    };
+    let Cursors::Correct(cursors) = &inner.cursors else {
+        return None;
+    };
+    let mut ids: Vec<_> = cursors.keys().collect();
+    ids.sort();
+    ids.into_iter()
+        .find_map(|id| cursors.get(id).and_then(|cursor| cursor.shape))
+        .map(|shape| shape.family())
 }
 
 /// One rendered frame, lifted into gpui's sprite atlas.
@@ -1299,6 +1337,9 @@ pub struct EditorWindow {
     /// model can be rebuilt after every edit.
     has_camera: bool,
     multiple_clips: bool,
+    /// `ProjectSummary::recorded_cursor_family`, kept here because the cursor
+    /// tab renders long before (and independently of) the load state's box.
+    pub(crate) recorded_cursor_family: Option<CursorFamily>,
     /// The debounced `project-config.json` write, and the task driving it.
     pending_save: Rc<RefCell<PendingProjectSave>>,
     save_task: Option<gpui::Task<()>>,
@@ -1372,6 +1413,7 @@ pub struct EditorWindow {
     preview_quality: crate::store::EditorPreviewQuality,
     pub(crate) tracks: TrackLanes,
     toolbar_menu: Option<OpenToolbarMenu>,
+    frame_controls: frame::FrameControls,
     add_track: Option<AddTrackMenu>,
     pub(crate) audio_picker: Option<crate::editor_audio::AudioPicker>,
     pub(crate) camera3d_setup: Option<Camera3DSetup>,
@@ -1609,6 +1651,7 @@ impl EditorWindow {
             recording_duration: 0.0,
             has_camera: false,
             multiple_clips: false,
+            recorded_cursor_family: None,
             pending_save: Rc::new(RefCell::new(PendingProjectSave::default())),
             save_task: None,
             name_input,
@@ -1634,6 +1677,7 @@ impl EditorWindow {
             preview_quality: crate::store::GeneralSettings::load().editor_preview_quality,
             tracks: TrackLanes::from_project(&ProjectConfiguration::default(), false),
             toolbar_menu: None,
+            frame_controls: frame::FrameControls::default(),
             add_track: None,
             audio_picker: None,
             camera3d_setup: None,
@@ -1698,6 +1742,7 @@ impl EditorWindow {
         self.recording_duration = summary.recording_duration;
         self.has_camera = summary.has_camera;
         self.multiple_clips = summary.multiple_clips;
+        self.recorded_cursor_family = summary.recorded_cursor_family;
         self.pending_save.borrow_mut().path = Some(self.project_path.clone());
         // `zoom: zoomOutLimit()` is the store's *initial* value
         // (`ED/context.ts:1455`), so it is set the moment a duration exists --
@@ -1730,6 +1775,7 @@ impl EditorWindow {
         // The sidebar's own signals are seeded from the config the instance
         // actually loaded, not the pre-flight's: `backgroundSourceTab`'s
         // initial value reads `background.padding`/`rounding` (`CS:1799-1802`).
+        self.flush_animated_gradient_selection();
         self.sidebar = crate::editor_sidebar::SidebarState::new(&self.project);
         self.sidebar_loaded(window, cx);
         cx.notify();
@@ -1995,11 +2041,26 @@ impl EditorWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let previous_animated_gradient = self.animated_gradient_config().cloned();
+        let animated_background_changed = self.animated_gradient_config()
+            != match &config.background.source {
+                cap_project::BackgroundSource::AnimatedGradient { config } => Some(config),
+                _ => None,
+            }
+            || crate::editor_sidebar::is_none_background(&self.project)
+                != crate::editor_sidebar::is_none_background(&config);
         self.project = config;
         self.rebuild_timeline();
-        self.sync_background_source_tab();
+        if self.animated_gradient_config().is_some() {
+            self.sidebar.source_tab = crate::editor_sidebar::initial_source_tab(&self.project);
+        } else {
+            self.sync_background_source_tab();
+        }
         self.publish_project();
         self.schedule_save(window, cx);
+        if animated_background_changed {
+            self.remember_animated_gradient_selection(previous_animated_gradient, window, cx);
+        }
         // A segment the undo removed must not stay selected.
         if let Some(selection) = &self.selection
             && let Some(timeline) = self.project.timeline.as_ref()
@@ -2307,12 +2368,35 @@ impl EditorWindow {
         self.stop_playback(cx);
     }
 
+    fn capture_playback_key(
+        &mut self,
+        event: &gpui::KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !is_playback_shortcut(&event.keystroke, ui::text_input_has_focus(window, cx)) {
+            return;
+        }
+        // Focused GPUI buttons arm a second click on key-up unless Space is
+        // consumed before their key-down listener runs.
+        window.prevent_default();
+        cx.stop_propagation();
+        if !event.is_held {
+            self.toggle_play(window, cx);
+        }
+    }
+
     /// The editor's key bindings live in `useEditorShortcuts`
     /// (`Player.tsx:236-286`): `Space` play/pause, `S` split (E4's) and
     /// `Mod+=` / `Mod+-` zoom. `Mod` is Cmd-or-Ctrl
     /// (`useEditorShortcuts.ts:10`) and `e.repeat` is ignored there
     /// (`:42`) as `is_held` is here.
     fn on_key(&mut self, event: &gpui::KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        if self.frame_controls.is_open() && event.keystroke.key == "escape" {
+            self.close_frame_controls(window, cx);
+            cx.stop_propagation();
+            return;
+        }
         // Crop mode first. It takes Escape and the four arrows and lets
         // **everything else through**, which is what the source does: the
         // dialog is a Kobalte modal but `useEditorShortcuts` and the
@@ -2507,10 +2591,6 @@ impl EditorWindow {
             return;
         }
         match keystroke.key.as_str() {
-            "space" => {
-                cx.stop_propagation();
-                self.toggle_play(window, cx);
-            }
             // `e.code === "Backspace" || (e.code === "Delete" &&
             // hasNoModifiers)` (`TL/index.tsx:963`). gpui reports the main
             // delete key as `backspace` and forward-delete as `delete`, which
@@ -2750,6 +2830,7 @@ impl EditorWindow {
         if event.button != MouseButton::Left || self.transport.is_none() {
             return;
         }
+        self.focus_root(window, cx);
         let viewport_width: f32 = window.viewport_size().width.into();
         let time = self.time_at(f32::from(event.position.x), viewport_width);
         if ruler {
@@ -2863,6 +2944,7 @@ impl EditorWindow {
         if event.button != MouseButton::Left || self.transport.is_none() {
             return;
         }
+        self.focus_root(window, cx);
         if self.clip_anim.is_some() {
             self.clip_anim = None;
             self.clip_anim_generation += 1;
@@ -4776,7 +4858,12 @@ impl EditorWindow {
         if let Some(stats) = &self.stats {
             stats.presented.fetch_add(1, Ordering::Relaxed);
         }
-        if layout_changed || cleared_drag_rect {
+        if frame_layout_requires_editor_invalidation(
+            first_frame,
+            self.playing,
+            layout_changed,
+            cleared_drag_rect,
+        ) {
             cx.notify();
         }
         // `refresh()` is a whole-window invalidation, so calling it per frame on
@@ -5450,10 +5537,15 @@ impl EditorWindow {
             return;
         };
         self.presets_menu = None;
+        self.refresh_animated_gradient_library();
+        let previous_animated_gradient = self.animated_gradient_config().cloned();
         self.edit_project("apply-preset", window, cx, move |project| {
             *project = next.clone();
             true
         });
+        self.sidebar.source_tab = crate::editor_sidebar::initial_source_tab(&self.project);
+        self.close_color_picker(cx);
+        self.remember_animated_gradient_selection(previous_animated_gradient, window, cx);
     }
 
     /// The submenu's store mutations: everything but Apply and the two
@@ -6947,7 +7039,7 @@ impl EditorWindow {
         let theme = self.theme;
         let name_focused = self.name_input.read(cx).focus_handle().is_focused(window);
 
-        div()
+        let header = div()
             .relative()
             .flex()
             .flex_row()
@@ -6955,6 +7047,9 @@ impl EditorWindow {
             .w_full()
             .h(px(HEADER_HEIGHT))
             .flex_none()
+            .when(cfg!(target_os = "windows"), |header| {
+                header.window_control_area(gpui::WindowControlArea::Drag)
+            })
             // Left group: `flex flex-row flex-1 gap-2 items-center px-4 h-full`.
             .child(
                 div()
@@ -6966,8 +7061,11 @@ impl EditorWindow {
                     .items_center()
                     .px(px(16.))
                     .h_full()
+                    .when(cfg!(target_os = "windows"), |group| group.occlude())
                     // The macOS spacer for the inset traffic lights: `h-full w-16`.
-                    .child(div().h_full().w(px(64.)).flex_none())
+                    .when(!cfg!(target_os = "windows"), |group| {
+                        group.child(div().h_full().w(px(64.)).flex_none())
+                    })
                     .child(
                         ui::EditorButton::plain(&theme, "delete-recording")
                             .left_icon("icons/trash.svg")
@@ -7028,7 +7126,15 @@ impl EditorWindow {
                                     .child(".cap"),
                             ),
                     )
-                    .child(div().flex_1().h_full()),
+                    .child(
+                        div()
+                            .flex_1()
+                            .h_full()
+                            .when(cfg!(target_os = "windows"), |area| {
+                                area.occlude()
+                                    .window_control_area(gpui::WindowControlArea::Drag)
+                            }),
+                    ),
             )
             // Centre group: `flex flex-row items-center justify-center gap-2
             // px-4 border-x border-black-transparent-10`.
@@ -7044,6 +7150,7 @@ impl EditorWindow {
                     .border_l_1()
                     .border_r_1()
                     .border_color(gpui::hsla(0., 0., 0., 0.1))
+                    .when(cfg!(target_os = "windows"), |group| group.occlude())
                     .child(
                         ui::EditorButton::plain(&theme, "presets")
                             .left_icon("icons/presets.svg")
@@ -7074,9 +7181,18 @@ impl EditorWindow {
                     .pl(px(8.))
                     .pr(px(8.))
                     .h_full()
+                    .when(cfg!(target_os = "windows"), |group| group.occlude())
                     .child(self.history_button("editor-undo", "icons/undo.svg", true, cx))
                     .child(self.history_button("editor-redo", "icons/redo.svg", false, cx))
-                    .child(div().flex_1().h_full())
+                    .child(
+                        div()
+                            .flex_1()
+                            .h_full()
+                            .when(cfg!(target_os = "windows"), |area| {
+                                area.occlude()
+                                    .window_control_area(gpui::WindowControlArea::Drag)
+                            }),
+                    )
                     // `Button` (gray), `flex gap-1.5 justify-center h-[40px]`.
                     .child(self.render_clips_pill(cx))
                     // `<Show when={hasTranscript()}>` (`Header.tsx:74-77,
@@ -7095,7 +7211,18 @@ impl EditorWindow {
                             .then(|| self.header_pill("icons/captions.svg", "Captions")),
                     )
                     .child(self.render_export_button(cx)),
-            )
+            );
+
+        #[cfg(target_os = "windows")]
+        let header = header.child(ui::windows_caption_controls(
+            theme,
+            window.is_window_active(),
+            window.is_maximized(),
+            true,
+            true,
+        ));
+
+        header
     }
 
     /// The Captions toggle: `Button variant="gray"` at
@@ -7234,13 +7361,7 @@ impl EditorWindow {
                                 this.open_crop(window, cx);
                             })),
                     )
-                    // `FrameButton`, whose idle label is "Frame".
-                    .child(self.editor_button(
-                        "icons/app-window-mac.svg",
-                        Some("Frame"),
-                        None,
-                        None,
-                    )),
+                    .child(self.render_frame_button(cx)),
             )
             .child(
                 div()
@@ -8256,6 +8377,10 @@ fn playhead_extrapolation(playing: bool, epoch_has_sample: bool, since_last_samp
     since_last_sample.clamp(0.0, MAX_PLAYHEAD_EXTRAPOLATION)
 }
 
+fn is_playback_shortcut(keystroke: &gpui::Keystroke, text_input_focused: bool) -> bool {
+    keystroke.key == "space" && !keystroke.modifiers.modified() && !text_input_focused
+}
+
 impl Render for EditorWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_appearance(window, cx);
@@ -8263,8 +8388,11 @@ impl Render for EditorWindow {
         // only renders on invalidation, so syncing before creating would leave
         // a brand-new box empty until something else asked for a frame.
         self.prepare_sidebar_fields(window, cx);
+        self.prepare_animated_gradient_fields(window, cx);
+        self.prepare_cursor_fields(window, cx);
         self.sync_hex_inputs(window, cx);
         self.sync_picker_hex(window, cx);
+        self.prepare_frame_fields(window, cx);
         self.sync_crop_container(window);
         let theme = self.theme;
         // The timeline's own bounds are what `secsPerPixel` divides by, and
@@ -8306,6 +8434,7 @@ impl Render for EditorWindow {
             .bg(self.root_bg())
             .text_color(Hsla::from(theme.gray_12))
             .track_focus(&self.focus)
+            .capture_key_down(cx.listener(Self::capture_playback_key))
             .on_key_down(cx.listener(Self::on_key))
             // Only the cropper needs key-*up*: its nudge loop runs until every
             // arrow is released (`Cropper.tsx:1025-1051`).
@@ -8575,6 +8704,7 @@ impl Render for EditorWindow {
             // sidebar and the drag layers alike.
             .children(self.render_sidebar_menu(cx))
             .children(self.render_toolbar_menu(cx))
+            .children(self.render_frame_controls(window, cx))
             .children(self.render_add_track_popover(cx))
             .children(self.render_clip_speed_popover(cx))
             .children(self.render_color_picker_popover(cx))
@@ -8724,7 +8854,14 @@ pub fn make_frame_callback(
 ) -> cap_editor::EditorFrameCallback {
     Box::new(move |output, layout| {
         stats.rendered.fetch_add(1, Ordering::Relaxed);
-        if tx.try_send((output, layout)).is_err() {
+        #[cfg(target_os = "windows")]
+        let sent = tx
+            .send_timeout((output, layout), Duration::from_millis(100))
+            .is_ok();
+        #[cfg(not(target_os = "windows"))]
+        let sent = tx.try_send((output, layout)).is_ok();
+
+        if !sent {
             stats.dropped.fetch_add(1, Ordering::Relaxed);
         }
     })
@@ -8758,6 +8895,24 @@ fn hex_to_color(rgba: [u8; 4]) -> cap_project::Color {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn playback_shortcut_is_reserved_for_bare_space_outside_text_fields() {
+        let space = gpui::Keystroke::parse("space").unwrap();
+        assert!(is_playback_shortcut(&space, false));
+        assert!(!is_playback_shortcut(&space, true));
+        for key in [
+            "enter",
+            "s",
+            "shift-space",
+            "cmd-space",
+            "ctrl-space",
+            "alt-space",
+        ] {
+            let keystroke = gpui::Keystroke::parse(key).unwrap();
+            assert!(!is_playback_shortcut(&keystroke, false), "{key}");
+        }
+    }
 
     /// `default_editor_preview_resolution()` is asserted to be 1248x702 in the
     /// Tauri app itself (`lib.rs:192-194`); the render size of a display
@@ -8807,6 +8962,31 @@ mod tests {
         let (width, height) = letterbox((1000., 500.), (0., 0.));
         assert_eq!(width, 992.);
         assert!((width / height - 992. / 492.).abs() < 0.001);
+    }
+
+    #[test]
+    fn animated_frame_layout_does_not_invalidate_editor_during_playback() {
+        assert!(!frame_layout_requires_editor_invalidation(
+            false, true, true, false
+        ));
+        assert!(!frame_layout_requires_editor_invalidation(
+            false, true, false, false
+        ));
+        assert!(!frame_layout_requires_editor_invalidation(
+            false, false, false, false
+        ));
+        assert!(frame_layout_requires_editor_invalidation(
+            false, false, true, false
+        ));
+        assert!(frame_layout_requires_editor_invalidation(
+            true, true, true, false
+        ));
+        assert!(frame_layout_requires_editor_invalidation(
+            false, true, false, true
+        ));
+        assert!(frame_layout_requires_editor_invalidation(
+            false, true, true, true
+        ));
     }
 
     /// Every failure `EditorInstance::new` would return, plus the one it would

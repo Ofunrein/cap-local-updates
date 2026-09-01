@@ -59,6 +59,15 @@ pub fn active_material(cx: &gpui::App) -> Option<MaterialKind> {
         .and_then(|material| material.0)
 }
 
+#[cfg(any(not(target_os = "macos"), test))]
+fn confirmation_accepted(result: rfd::MessageDialogResult, accept: &str) -> bool {
+    match result {
+        rfd::MessageDialogResult::Ok => true,
+        rfd::MessageDialogResult::Custom(label) => label == accept,
+        _ => false,
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct PanelBehavior {
     pub level: isize,
@@ -72,6 +81,9 @@ pub struct PanelBehavior {
 
 #[cfg(target_os = "macos")]
 pub use mac::*;
+
+#[cfg(target_os = "macos")]
+mod macos_occlusion;
 
 #[cfg(target_os = "macos")]
 mod mac {
@@ -282,48 +294,7 @@ mod mac {
     /// (self-delegating) occlusion handler for windows that opened before the
     /// state ever changed.
     pub fn install_occlusion_shim() {
-        use objc2::ffi::{class_addMethod, objc_msgSendSuper, objc_super};
-
-        unsafe extern "C" fn occlusion_state_shim(this: *mut AnyObject, sel: Sel) -> usize {
-            unsafe {
-                let class = (*this).class();
-                let Some(superclass) = class.superclass() else {
-                    return 0;
-                };
-                let mut sup = objc_super {
-                    receiver: this.cast(),
-                    super_class: (superclass as *const objc2::runtime::AnyClass).cast(),
-                };
-                let send: unsafe extern "C" fn(*mut objc_super, Sel) -> usize =
-                    std::mem::transmute(objc_msgSendSuper as unsafe extern "C" fn());
-                let raw = send(&mut sup, sel);
-                if raw != 0 { raw | 0x2 } else { raw }
-            }
-        }
-
-        for name in ["GPUIWindow", "GPUIPanel"] {
-            let Some(class) = objc2::runtime::AnyClass::get(name) else {
-                // The class registers lazily with the first window; the caller
-                // runs before that only if nothing was opened -- harmless, the
-                // second call from `kick_display_link` retries.
-                continue;
-            };
-            let added = unsafe {
-                class_addMethod(
-                    (class as *const objc2::runtime::AnyClass as *mut objc2::ffi::objc_class)
-                        .cast(),
-                    objc2::sel!(occlusionState).as_ptr(),
-                    Some(std::mem::transmute::<
-                        unsafe extern "C" fn(*mut AnyObject, Sel) -> usize,
-                        unsafe extern "C" fn(),
-                    >(occlusion_state_shim)),
-                    c"Q@:".as_ptr(),
-                )
-            };
-            if added {
-                tracing::info!("installed macOS 26 occlusion shim on {name}");
-            }
-        }
+        super::macos_occlusion::install();
 
         // Same per-class, retried-from-the-same-spots lifecycle, so it rides
         // along here.
@@ -368,7 +339,7 @@ mod mac {
                     c"{CGRect={CGPoint=dd}{CGSize=dd}}@:{CGRect={CGPoint=dd}{CGSize=dd}}@".as_ptr(),
                 )
             };
-            if added {
+            if objc2::runtime::Bool::from_raw(added).as_bool() {
                 tracing::info!("installed frame-constraint shim on {name}");
             }
         }
@@ -456,6 +427,20 @@ mod mac {
             if mask != want {
                 tracing::info!(mask, "clearing foreign style-mask bits on the main window");
                 let _: () = msg_send![&*native.0, setStyleMask: want];
+            }
+        }
+    }
+
+    pub fn remove_popup_window_chrome(native: &NativeWindow) {
+        use objc2::msg_send;
+
+        const TITLED: usize = 1 << 0;
+
+        unsafe {
+            let mask: usize = msg_send![&*native.0, styleMask];
+            let borderless = mask & !TITLED;
+            if mask != borderless {
+                let _: () = msg_send![&*native.0, setStyleMask: borderless];
             }
         }
     }
@@ -579,11 +564,14 @@ mod mac {
             if screens.is_null() {
                 return true;
             }
-            let count: usize = msg_send![screens, count];
-            for index in 0..count {
-                let screen: *mut AnyObject = msg_send![screens, objectAtIndex: index];
+            let enumerator: *mut AnyObject = msg_send![screens, objectEnumerator];
+            if enumerator.is_null() {
+                return true;
+            }
+            loop {
+                let screen: *mut AnyObject = msg_send![enumerator, nextObject];
                 if screen.is_null() {
-                    continue;
+                    break;
                 }
                 let bounds: NSRect = msg_send![screen, frame];
                 let overlap_x =
@@ -1554,7 +1542,13 @@ mod mac {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "windows")]
+mod windows;
+
+#[cfg(target_os = "windows")]
+pub use windows::*;
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 mod stub {
     use gpui::Window;
 
@@ -1591,6 +1585,7 @@ mod stub {
         None
     }
     pub fn restore_borderless_style(_native: &NativeWindow) {}
+    pub fn remove_popup_window_chrome(_native: &NativeWindow) {}
     pub fn place_overlay_panel(
         _native: &NativeWindow,
         _x: f64,
@@ -1600,9 +1595,9 @@ mod stub {
         _level: isize,
     ) {
     }
-    pub fn install_occlusion_shim() {}
     pub fn kick_display_link(_window: &Window) {}
-    pub fn apply_panel_behavior(window: &Window, _behavior: PanelBehavior) {
+    pub fn apply_panel_behavior(window: &Window, behavior: PanelBehavior) {
+        let _ = (behavior.level, behavior.join_all_spaces, behavior.shadow);
         apply_always_on_top(window);
     }
 
@@ -1613,7 +1608,7 @@ mod stub {
             use windows_sys::Win32::UI::WindowsAndMessaging::{
                 HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE, SetWindowPos,
             };
-            if let Ok(handle) = window.window_handle()
+            if let Ok(handle) = HasWindowHandle::window_handle(window)
                 && let RawWindowHandle::Win32(win) = handle.as_raw()
             {
                 let hwnd = win.hwnd.get() as windows_sys::Win32::Foundation::HWND;
@@ -1636,7 +1631,7 @@ mod stub {
             CLIENT_MESSAGE_EVENT, ClientMessageEvent, ConnectionExt, EventMask,
         };
 
-        let Ok(handle) = window.window_handle() else {
+        let Ok(handle) = HasWindowHandle::window_handle(window) else {
             return;
         };
         let window_id = match handle.as_raw() {
@@ -1675,6 +1670,52 @@ mod stub {
     }
     pub fn hide_native(_native: &NativeWindow) {}
     pub fn show_native(_native: &NativeWindow) {}
+
+    #[cfg(target_os = "linux")]
+    pub fn remove_x11_window_decorations(window: &Window) -> anyhow::Result<()> {
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        use x11rb::connection::Connection;
+        use x11rb::protocol::xproto::{ConnectionExt, PropMode};
+        use x11rb::wrapper::ConnectionExt as _;
+
+        let window_id = match HasWindowHandle::window_handle(window)?.as_raw() {
+            RawWindowHandle::Xlib(handle) => u32::try_from(handle.window)?,
+            RawWindowHandle::Xcb(handle) => handle.window.get(),
+            _ => return Ok(()),
+        };
+        let (connection, _) = x11rb::connect(None)?;
+        let atom = connection
+            .intern_atom(false, b"_MOTIF_WM_HINTS")?
+            .reply()?
+            .atom;
+        connection
+            .change_property32(PropMode::REPLACE, window_id, atom, atom, &[2, 0, 0, 0, 0])?
+            .check()?;
+        connection.flush()?;
+        Ok(())
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn set_x11_window_visible(window: &Window, visible: bool) -> anyhow::Result<()> {
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        use x11rb::connection::Connection;
+        use x11rb::protocol::xproto::ConnectionExt;
+
+        let window_id = match HasWindowHandle::window_handle(window)?.as_raw() {
+            RawWindowHandle::Xlib(handle) => u32::try_from(handle.window)?,
+            RawWindowHandle::Xcb(handle) => handle.window.get(),
+            _ => return Ok(()),
+        };
+        let (connection, _) = x11rb::connect(None)?;
+        if visible {
+            connection.map_window(window_id)?.check()?;
+        } else {
+            connection.unmap_window(window_id)?.check()?;
+        }
+        connection.flush()?;
+        Ok(())
+    }
+
     pub fn window_frame(_native: &NativeWindow) -> (f64, f64, f64, f64) {
         (0., 0., 0., 0.)
     }
@@ -1685,9 +1726,6 @@ mod stub {
     }
 
     pub fn close_native(_native: &NativeWindow) {}
-    pub fn debug_window_state(_native: &NativeWindow) -> String {
-        String::new()
-    }
     pub fn set_dock_icon(_png: &[u8]) {}
     pub fn escape_hotkey_events() -> flume::Receiver<()> {
         // A channel whose sender is dropped immediately: the drain task's
@@ -1724,7 +1762,7 @@ mod stub {
         } else {
             rfd::MessageLevel::Info
         };
-        rfd::MessageDialog::new()
+        let result = rfd::MessageDialog::new()
             .set_title(title)
             .set_description(message)
             .set_buttons(rfd::MessageButtons::OkCancelCustom(
@@ -1732,8 +1770,8 @@ mod stub {
                 cancel.to_string(),
             ))
             .set_level(level)
-            .show()
-            == rfd::MessageDialogResult::Custom(accept.to_string())
+            .show();
+        super::confirmation_accepted(result, accept)
     }
 
     pub fn alert_dialog(title: &str, message: &str) {
@@ -1807,5 +1845,38 @@ mod stub {
     pub fn show_about_panel(_name: &str, _version: &str) {}
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 pub use stub::*;
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn confirmation_accepts_native_ok_and_matching_custom_label_only() {
+        let accept = "Install update";
+
+        assert!(super::confirmation_accepted(
+            rfd::MessageDialogResult::Ok,
+            accept
+        ));
+        assert!(super::confirmation_accepted(
+            rfd::MessageDialogResult::Custom(accept.to_string()),
+            accept
+        ));
+        assert!(!super::confirmation_accepted(
+            rfd::MessageDialogResult::Custom("Ignore".to_string()),
+            accept
+        ));
+        assert!(!super::confirmation_accepted(
+            rfd::MessageDialogResult::Cancel,
+            accept
+        ));
+        assert!(!super::confirmation_accepted(
+            rfd::MessageDialogResult::No,
+            accept
+        ));
+        assert!(!super::confirmation_accepted(
+            rfd::MessageDialogResult::Yes,
+            accept
+        ));
+    }
+}

@@ -21,8 +21,7 @@
 //! Every control here writes a real `ProjectConfiguration` key path through the
 //! **same** path a timeline edit takes -- [`EditorWindow::project_changed`]:
 //! history, then `project_config` + `preview_tx` so the picture follows the
-//! change, then the 250ms debounced `ProjectConfiguration::write`. Nothing in
-//! this module writes to disk itself.
+//! change, then the 250ms debounced `ProjectConfiguration::write`.
 //!
 //! Three things needed native code, and all three are the shipping behaviour
 //! rather than an approximation of it:
@@ -36,15 +35,15 @@
 //!   re-encode (`src-tauri/src/recording.rs:181-208, 437-472`).
 
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     path::{Path, PathBuf},
     sync::Arc,
     time::Instant,
 };
 
 use cap_project::{
-    BackgroundSource, BorderConfiguration, Color, CornerStyle, DisplayNotch, NotchConfiguration,
-    ProjectConfiguration, ShadowConfiguration,
+    AnimatedGradientParameter, BackgroundSource, BorderConfiguration, Color, CornerStyle,
+    DisplayNotch, NotchConfiguration, ProjectConfiguration, ShadowConfiguration,
 };
 use gpui::{
     AnyElement, Bounds, Context, FontWeight, Hsla, InteractiveElement, IntoElement, MouseDownEvent,
@@ -62,6 +61,9 @@ use crate::{
     library,
     ui::{self, CollapsibleState, SliderTrack},
 };
+
+mod animated_gradient;
+mod cursor;
 
 // ---------------------------------------------------------------------------
 // The catalogue: every constant the background section reads
@@ -289,6 +291,7 @@ pub enum SourceTab {
     Image,
     Color,
     Gradient,
+    AnimatedGradient,
     None,
 }
 
@@ -296,7 +299,7 @@ impl SourceTab {
     /// `BACKGROUND_SOURCES_ROW_ONE` / `_TWO` (`:236-246`).
     pub const ROWS: [[SourceTab; 3]; 2] = [
         [Self::Desktop, Self::Wallpaper, Self::Image],
-        [Self::Color, Self::Gradient, Self::None],
+        [Self::Color, Self::Gradient, Self::AnimatedGradient],
     ];
 
     pub fn label(self) -> &'static str {
@@ -306,6 +309,7 @@ impl SourceTab {
             Self::Image => "Image",
             Self::Color => "Color",
             Self::Gradient => "Gradient",
+            Self::AnimatedGradient => "Animated",
             Self::None => "None",
         }
     }
@@ -336,12 +340,25 @@ pub fn source_tab_for(source: &BackgroundSource) -> SourceTab {
         BackgroundSource::Image { .. } => SourceTab::Image,
         BackgroundSource::Color { .. } => SourceTab::Color,
         BackgroundSource::Gradient { .. } => SourceTab::Gradient,
+        BackgroundSource::AnimatedGradient { .. } => SourceTab::AnimatedGradient,
     }
 }
 
 /// `isNoneBackground()` (`:1776-1777`).
 pub fn is_none_background(config: &ProjectConfiguration) -> bool {
     config.background.padding == 0. && config.background.rounding == 0.
+}
+
+fn hide_background(config: &mut ProjectConfiguration) -> bool {
+    config.background.padding = 0.;
+    config.background.rounding = 0.;
+    if matches!(
+        config.background.source,
+        BackgroundSource::AnimatedGradient { .. }
+    ) {
+        config.background.source = BackgroundSource::default();
+    }
+    true
 }
 
 /// The tab the panel opens on: "None" wins over the underlying source, and it
@@ -462,24 +479,34 @@ pub fn wallpapers_for_theme(theme: &str) -> Vec<&'static str> {
 /// installed Cap.app (whose paths are byte-identical to what the shipping app
 /// would write) and falling back to the repository the dev build runs from.
 pub fn wallpaper_dir() -> Option<PathBuf> {
-    if let Ok(path) = std::env::var("CAP_GPUI_WALLPAPERS_DIR") {
-        let path = PathBuf::from(path);
-        if path.is_dir() {
-            return Some(path);
-        }
+    let override_dir = std::env::var_os("CAP_GPUI_WALLPAPERS_DIR").map(PathBuf::from);
+    wallpaper_dir_from(
+        &crate::store::bundled_resource_dirs(),
+        override_dir.as_deref(),
+        Path::new(env!("CARGO_MANIFEST_DIR")),
+    )
+}
+
+fn wallpaper_dir_from(
+    resource_dirs: &[PathBuf],
+    override_dir: Option<&Path>,
+    manifest: &Path,
+) -> Option<PathBuf> {
+    if let Some(path) = override_dir
+        && path.is_dir()
+    {
+        return Some(path.to_path_buf());
     }
 
-    let mut candidates = Vec::with_capacity(3);
-    if let Ok(executable) = std::env::current_exe()
-        && let Some(contents) = executable.parent().and_then(Path::parent)
-    {
-        candidates.push(contents.join("Resources/assets/backgrounds"));
-    }
+    let mut candidates = resource_dirs
+        .iter()
+        .map(|directory| directory.join("assets/backgrounds"))
+        .collect::<Vec<_>>();
     candidates.push(PathBuf::from(
         "/Applications/Cap.app/Contents/Resources/assets/backgrounds",
     ));
     candidates.push(
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        manifest
             .join("../desktop/src-tauri/assets/backgrounds")
             .clean(),
     );
@@ -510,6 +537,9 @@ impl Clean for PathBuf {
 }
 
 pub fn wallpaper_path(id: &str) -> Option<PathBuf> {
+    if !WALLPAPER_NAMES.contains(&id) {
+        return None;
+    }
     let path = wallpaper_dir()?.join(format!("{id}.jpg"));
     path.is_file().then_some(path)
 }
@@ -670,6 +700,8 @@ impl BgSlider {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SliderKey {
     Bg(BgSlider),
+    AnimatedGradient(AnimatedGradientParameter),
+    AnimatedGradientStop(usize),
     Grade(GradeTarget, GradeSlider),
     Camera(CameraSlider),
     Audio(AudioSlider),
@@ -692,7 +724,11 @@ pub enum ColorTarget {
     BackgroundColor,
     GradientFrom,
     GradientTo,
+    AnimatedGradientStop(usize),
     BorderColor,
+    /// The click ripple's ring colour, the one `[u8; 3]` target outside the
+    /// background tab.
+    CursorRipple,
     CaptionColor,
     CaptionBackground,
     CaptionHighlight,
@@ -707,7 +743,12 @@ impl ColorTarget {
     pub fn is_hex_string(self) -> bool {
         !matches!(
             self,
-            Self::BackgroundColor | Self::GradientFrom | Self::GradientTo | Self::BorderColor
+            Self::BackgroundColor
+                | Self::GradientFrom
+                | Self::GradientTo
+                | Self::AnimatedGradientStop(_)
+                | Self::BorderColor
+                | Self::CursorRipple
         )
     }
 }
@@ -722,6 +763,7 @@ pub enum ColorPickerDrag {
 /// The sidebar's own state -- everything `ConfigSidebar`'s signals hold that is
 /// not in the project config.
 pub struct SidebarState {
+    animated_gradient: animated_gradient::AnimatedGradientState,
     /// `state.selectedTab` (`:563-573`).
     pub tab: SidebarTab,
     /// `backgroundSourceTab` (`:1799-1802`).
@@ -760,6 +802,16 @@ pub struct SidebarState {
     /// `KCollapsible open={!project.cursor.raw}` physics panel.
     pub camera_shadow_open: CollapsibleState,
     pub cursor_physics_open: CollapsibleState,
+    /// The click-ripple settings, revealed by their own toggle.
+    pub cursor_ripple_open: CollapsibleState,
+    /// The style picker's rasterised cursor art, keyed by shape and the device
+    /// pixel box it was drawn for. A `BTreeMap` because `CursorShape` is `Ord`
+    /// but not `Hash`.
+    cursor_previews:
+        std::cell::RefCell<BTreeMap<(cap_cursor_info::CursorShape, u32, u32), Arc<RenderImage>>>,
+    /// The device scale those were rasterised at, sampled once a frame from
+    /// `render` -- the only place in the sidebar's chain with a `&Window`.
+    cursor_scale: f32,
     /// The 3D panel's three `Camera3DSection`s and the zoom panel's helper.
     pub panel_sections: std::cell::RefCell<HashMap<PanelSection, std::rc::Rc<CollapsibleState>>>,
 
@@ -816,6 +868,7 @@ pub struct SidebarState {
 impl SidebarState {
     pub fn new(config: &ProjectConfiguration) -> Self {
         Self {
+            animated_gradient: animated_gradient::AnimatedGradientState::new(),
             tab: SidebarTab::Background,
             source_tab: initial_source_tab(config),
             wallpaper_theme: 0,
@@ -835,6 +888,9 @@ impl SidebarState {
             grade_previews: std::cell::RefCell::new(HashMap::new()),
             camera_shadow_open: CollapsibleState::new(false),
             cursor_physics_open: CollapsibleState::new(!config.cursor.raw),
+            cursor_ripple_open: CollapsibleState::new(config.cursor.ripple.enabled),
+            cursor_previews: std::cell::RefCell::new(BTreeMap::new()),
+            cursor_scale: 2.,
             panel_sections: std::cell::RefCell::new(HashMap::new()),
             noise: std::cell::RefCell::new(None),
             menu: None,
@@ -993,10 +1049,12 @@ impl EditorWindow {
         if reason != "color" {
             self.end_color_history();
         }
+        let previous_animated_gradient = self.animated_gradient_config().cloned();
         if !change(&mut self.project) {
             return;
         }
         self.project_changed(window, cx);
+        self.remember_animated_gradient_selection(previous_animated_gradient, window, cx);
         self.note_sidebar_edit(reason);
     }
 
@@ -1106,6 +1164,11 @@ impl EditorWindow {
     pub(crate) fn slider_limits(&self, slider: SliderKey) -> (f32, f32, f32) {
         match slider {
             SliderKey::Bg(slider) => self.bg_slider_limits(slider),
+            SliderKey::AnimatedGradient(parameter) => {
+                let control = parameter.control();
+                (control.min, control.max, control.step)
+            }
+            SliderKey::AnimatedGradientStop(_) => (0., 100., 1.),
             SliderKey::Grade(_, slider) => slider.limits(),
             SliderKey::Camera(slider) => slider.limits(),
             SliderKey::Audio(slider) => slider.limits(),
@@ -1119,6 +1182,13 @@ impl EditorWindow {
     pub(crate) fn slider_value(&self, slider: SliderKey) -> f32 {
         match slider {
             SliderKey::Bg(slider) => self.bg_slider_value(slider),
+            SliderKey::AnimatedGradient(parameter) => self
+                .animated_gradient_config()
+                .map_or(0., |config| parameter.get(config)),
+            SliderKey::AnimatedGradientStop(index) => self
+                .animated_gradient_config()
+                .and_then(|config| config.color_stops.get(index))
+                .map_or(0., |stop| stop.position),
             // Every grade slider is `Math.round(value * 100)` in the UI and
             // `v / 100` back into the config (`ColorCorrectionSection.tsx:181`).
             SliderKey::Grade(target, slider) => (slider.read(self.grade(target)) * 100.).round(),
@@ -1141,6 +1211,12 @@ impl EditorWindow {
     ) {
         match slider {
             SliderKey::Bg(slider) => self.apply_bg_slider(slider, value, window, cx),
+            SliderKey::AnimatedGradient(parameter) => {
+                self.apply_animated_gradient_parameter(parameter, value, window, cx)
+            }
+            SliderKey::AnimatedGradientStop(index) => {
+                self.apply_animated_gradient_stop_position(index, value, window, cx)
+            }
             SliderKey::Grade(target, slider) => {
                 self.set_grade_value(target, slider, value / 100., window, cx)
             }
@@ -1559,6 +1635,10 @@ impl EditorWindow {
                 BackgroundSource::Gradient { to, .. } => Some(*to),
                 _ => None,
             },
+            ColorTarget::AnimatedGradientStop(index) => self
+                .animated_gradient_config()
+                .and_then(|config| config.color_stops.get(index))
+                .map(|stop| stop.color),
             ColorTarget::BorderColor => Some(
                 self.project
                     .background
@@ -1566,6 +1646,7 @@ impl EditorWindow {
                     .as_ref()
                     .map_or(UI_BORDER_FALLBACK.color, |border| border.color),
             ),
+            ColorTarget::CursorRipple => Some(self.project.cursor.ripple.color),
             _ => self.hex_string_for(target).and_then(|hex| {
                 hex_to_rgb(&hex).map(|rgba| [rgba[0] as u16, rgba[1] as u16, rgba[2] as u16])
             }),
@@ -1602,6 +1683,17 @@ impl EditorWindow {
         if target.is_hex_string() {
             return self.set_hex_color(target, color, window, cx);
         }
+        // The one `[u8; 3]` target that does not live under `background`, so
+        // it takes the general fan-out rather than `edit_background`.
+        if target == ColorTarget::CursorRipple {
+            return self.edit_project("cursor-ripple-color", window, cx, move |project| {
+                if project.cursor.ripple.color == color {
+                    return false;
+                }
+                project.cursor.ripple.color = color;
+                true
+            });
+        }
         self.edit_background(
             "color",
             |project| {
@@ -1632,6 +1724,19 @@ impl EditorWindow {
                         let mut border = background.border.clone().unwrap_or(UI_BORDER_FALLBACK);
                         border.color = color;
                         background.border = Some(border);
+                    }
+                    ColorTarget::AnimatedGradientStop(index) => {
+                        let BackgroundSource::AnimatedGradient { config } = &mut background.source
+                        else {
+                            return false;
+                        };
+                        let Some(stop) = config.color_stops.get_mut(index) else {
+                            return false;
+                        };
+                        if stop.color == color {
+                            return false;
+                        }
+                        stop.color = color;
                     }
                     _ => unreachable!("hex-string targets go through set_hex_color"),
                 }
@@ -1699,8 +1804,18 @@ impl EditorWindow {
 fn decode_scaled_rgba(path: &Path, max: u32) -> Option<image::RgbaImage> {
     let bytes = std::fs::read(path).ok()?;
     let format = image::guess_format(&bytes).ok()?;
-    let decoded = image::load_from_memory_with_format(&bytes, format).ok()?;
-    let (width, height) = (decoded.width().max(1), decoded.height().max(1));
+    let (decoded, width, height) = if format == image::ImageFormat::Jpeg {
+        decode_jpeg_thumbnail(&bytes, max).or_else(|| {
+            let decoded = image::load_from_memory_with_format(&bytes, format).ok()?;
+            let dimensions = (decoded.width(), decoded.height());
+            Some((decoded, dimensions.0, dimensions.1))
+        })?
+    } else {
+        let decoded = image::load_from_memory_with_format(&bytes, format).ok()?;
+        let dimensions = (decoded.width(), decoded.height());
+        (decoded, dimensions.0, dimensions.1)
+    };
+    let (width, height) = (width.max(1), height.max(1));
     let scale = (max as f32 / width.max(height) as f32).min(1.);
     let target_width = ((width as f32 * scale).round() as u32).max(1);
     let target_height = ((height as f32 * scale).round() as u32).max(1);
@@ -1722,6 +1837,25 @@ fn decode_scaled_rgba(path: &Path, max: u32) -> Option<image::RgbaImage> {
     } else {
         decoded.into_rgba8()
     })
+}
+
+fn decode_jpeg_thumbnail(bytes: &[u8], max: u32) -> Option<(image::DynamicImage, u32, u32)> {
+    let mut decoder = jpeg_decoder::Decoder::new(bytes);
+    decoder.read_info().ok()?;
+    let info = decoder.info()?;
+    let requested = max.clamp(1, u16::MAX as u32) as u16;
+    let (width, height) = decoder.scale(requested, requested).ok()?;
+    let pixels = decoder.decode().ok()?;
+    let decoded = match info.pixel_format {
+        jpeg_decoder::PixelFormat::RGB24 => image::DynamicImage::ImageRgb8(
+            image::RgbImage::from_raw(width as u32, height as u32, pixels)?,
+        ),
+        jpeg_decoder::PixelFormat::L8 => image::DynamicImage::ImageLuma8(
+            image::GrayImage::from_raw(width as u32, height as u32, pixels)?,
+        ),
+        _ => return None,
+    };
+    Some((decoded, info.width as u32, info.height as u32))
 }
 
 /// [`decode_scaled_rgba`] in gpui's BGRA order.
@@ -1931,7 +2065,7 @@ impl EditorWindow {
         }
         self.sidebar.wallpaper_task = Some(cx.spawn_in(window, async move |this, cx| {
             let (_decodes, results) =
-                library::spawn_decode_pool(cx.background_executor(), wanted, |id| {
+                library::spawn_decode_pool_limited(cx.background_executor(), wanted, 2, |id| {
                     decode_wallpaper_thumbnail(id).map(|image| (id, image))
                 });
             while let Ok(first) = results.recv_async().await {
@@ -2031,20 +2165,13 @@ impl EditorWindow {
 
     /// The source-tab row's `onChange` (`:2189-2263`), verbatim.
     fn select_source_tab(&mut self, tab: SourceTab, window: &mut Window, cx: &mut Context<Self>) {
+        self.refresh_animated_gradient_library();
+        self.close_color_picker(cx);
         let from_none = self.sidebar.source_tab == SourceTab::None;
         self.sidebar.source_tab = tab;
 
         if tab == SourceTab::None {
-            self.edit_background(
-                "source-none",
-                |project| {
-                    project.background.padding = 0.;
-                    project.background.rounding = 0.;
-                    true
-                },
-                window,
-                cx,
-            );
+            self.edit_background("source-none", hide_background, window, cx);
             self.ensure_preview(window, cx);
             return;
         }
@@ -2055,6 +2182,17 @@ impl EditorWindow {
                 self.set_wallpaper_source(path.to_string_lossy().into_owned(), window, cx);
             }
             self.ensure_preview(window, cx);
+            return;
+        }
+
+        if tab == SourceTab::AnimatedGradient {
+            let config = self
+                .animated_gradient_config()
+                .cloned()
+                .or_else(|| self.sidebar.animated_gradient.library.last_used.clone())
+                .unwrap_or_default();
+            self.ensure_background_presentation(from_none);
+            self.select_animated_gradient(config, window, cx);
             return;
         }
 
@@ -2473,6 +2611,7 @@ impl EditorWindow {
                     .flex_col()
                     .gap(px(8.))
                     .children(rows)
+                    .child(self.render_source_trigger(SourceTab::None, cx))
                     // `my-5 w-full border-t border-dashed border-gray-5`
                     .child(
                         div()
@@ -2485,6 +2624,9 @@ impl EditorWindow {
                         SourceTab::Image => self.render_image_pane(cx).into_any_element(),
                         SourceTab::Color => self.render_color_pane(cx).into_any_element(),
                         SourceTab::Gradient => self.render_gradient_pane(cx).into_any_element(),
+                        SourceTab::AnimatedGradient => {
+                            self.render_animated_gradient_pane(cx).into_any_element()
+                        }
                         SourceTab::None => div().into_any_element(),
                     }),
             )
@@ -2515,10 +2657,14 @@ impl EditorWindow {
                     .text_color(Hsla::from(theme.gray_12))
             })
             .when(!selected, |this| {
-                this.border_color(gpui::transparent_black())
-                    .text_color(Hsla::from(theme.gray_11))
-                    .cursor_pointer()
-                    .hover(|this| this.border_color(Hsla::from(theme.gray_7)))
+                this.border_color(if item == SourceTab::None {
+                    Hsla::from(theme.gray_5)
+                } else {
+                    gpui::transparent_black()
+                })
+                .text_color(Hsla::from(theme.gray_11))
+                .cursor_pointer()
+                .hover(|this| this.border_color(Hsla::from(theme.gray_7)))
             })
             .child(self.render_source_icon(item))
             .child(item.label())
@@ -2557,6 +2703,7 @@ impl EditorWindow {
                     ))
                     .into_any_element()
             }
+            SourceTab::AnimatedGradient => self.render_animated_gradient_icon(),
             SourceTab::Color => {
                 let value = match source {
                     BackgroundSource::Color { value, .. } => *value,
@@ -3744,8 +3891,11 @@ pub(crate) fn format_slider_value(value: f32, unit: &str) -> String {
     match unit {
         "" => format!("{value:.1}"),
         "deg" => format!("{}\u{b0}", value.round() as i32),
+        "int" => format!("{}", value.round() as i32),
         "x100%" => format!("{}%", (value * 100.).round() as i32),
         "pct" => format!("{:.1}%", value * 100.),
+        // The ripple duration's `${v.toFixed(2)}s`.
+        "secs" => format!("{value:.2}s"),
         unit => format!("{value:.1}{unit}"),
     }
 }
@@ -3902,6 +4052,86 @@ mod tests {
         }
         assert_eq!(wallpapers_for_theme("macOS").len(), 18);
         assert_eq!(wallpapers_for_theme("orange").len(), 9);
+    }
+
+    #[test]
+    fn animated_gradient_has_a_distinct_source_tab() {
+        let source = BackgroundSource::AnimatedGradient {
+            config: cap_project::AnimatedGradientConfig::default(),
+        };
+        assert_eq!(source_tab_for(&source), SourceTab::AnimatedGradient);
+        assert_eq!(SourceTab::AnimatedGradient.label(), "Animated");
+        assert!(SourceTab::ROWS[1].contains(&SourceTab::AnimatedGradient));
+        assert!(
+            !SourceTab::ROWS
+                .iter()
+                .flatten()
+                .any(|tab| *tab == SourceTab::None)
+        );
+        assert!(!ColorTarget::AnimatedGradientStop(0).is_hex_string());
+    }
+
+    #[test]
+    fn built_in_wallpapers_remain_available_from_the_development_checkout() {
+        assert!(wallpaper_path("macOS/sequoia-dark").is_some());
+    }
+
+    #[test]
+    fn wallpaper_jpegs_decode_at_thumbnail_dimensions() {
+        let path = wallpaper_path("macOS/sequoia-dark").unwrap();
+        let (width, height) = image::image_dimensions(&path).unwrap();
+        let image = decode_scaled_rgba(&path, WALLPAPER_TILE_MAX).unwrap();
+
+        assert_eq!(image.width().max(image.height()), WALLPAPER_TILE_MAX);
+        assert!(
+            (image.width() as f64 / image.height() as f64 - width as f64 / height as f64).abs()
+                < 0.025
+        );
+    }
+
+    #[test]
+    fn jpeg_thumbnail_decoder_downsamples_before_allocating_pixels() {
+        let original = image::RgbImage::from_pixel(1024, 512, image::Rgb([40, 120, 200]));
+        let mut encoded = Vec::new();
+        image::codecs::jpeg::JpegEncoder::new(&mut encoded)
+            .encode_image(&original)
+            .unwrap();
+
+        let (decoded, width, height) = decode_jpeg_thumbnail(&encoded, 128).unwrap();
+
+        assert_eq!((width, height), (1024, 512));
+        assert!(decoded.width() <= 256);
+        assert!(decoded.height() <= 128);
+        let pixel = decoded.to_rgb8().get_pixel(0, 0).0;
+        assert!(pixel[0].abs_diff(40) <= 3);
+        assert!(pixel[1].abs_diff(120) <= 3);
+        assert!(pixel[2].abs_diff(200) <= 3);
+    }
+
+    #[test]
+    fn built_in_wallpapers_reject_unknown_and_traversal_identifiers() {
+        assert_eq!(wallpaper_path("unknown/wallpaper"), None);
+        assert_eq!(wallpaper_path("../macOS/sequoia-dark"), None);
+        assert_eq!(wallpaper_path("/macOS/sequoia-dark"), None);
+    }
+
+    #[test]
+    fn built_in_wallpapers_resolve_from_an_installed_bundle() {
+        let root = std::env::temp_dir().join(format!(
+            "cap-gpui-installed-wallpapers-{}",
+            std::process::id()
+        ));
+        let resources = root.join("Cap.app/Contents/Resources");
+        let backgrounds = resources.join("assets/backgrounds");
+        let wallpaper = backgrounds.join("macOS/sequoia-dark.jpg");
+        std::fs::create_dir_all(wallpaper.parent().unwrap()).unwrap();
+        std::fs::write(&wallpaper, b"test wallpaper").unwrap();
+
+        let found = wallpaper_dir_from(&[resources], None, &root.join("missing"));
+        assert_eq!(found, Some(backgrounds));
+        assert!(found.unwrap().join("macOS/sequoia-dark.jpg").is_file());
+
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
