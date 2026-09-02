@@ -175,7 +175,6 @@ jobs:
             security unlock-keychain -p "$KCPASS" "$KEYCHAIN"
             security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
             security import "$RUNNER_TEMP/cap2.p12" -k "$KEYCHAIN" -P "$CAP2_CODESIGN_P12_PASSWORD" -T /usr/bin/codesign -A
-            security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KCPASS" "$KEYCHAIN" >/dev/null
             IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN" | awk 'NR==1 {print $2}')
             rm -f "$RUNNER_TEMP/cap2.p12"
             [ -n "$IDENTITY" ] || { echo "::error::no codesigning identity found in CAP2_CODESIGN_P12"; exit 1; }
