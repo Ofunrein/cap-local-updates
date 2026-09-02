@@ -175,7 +175,7 @@ index 000000000..9500e4a2f
 +				"https://github.com/Ofunrein/cap-local-updates/releases/latest/download/latest.json"
 +			],
 +			"dialog": true,
-+			"pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDMwMTUwMDBENkI4NzA1QjUKUldTMUJZZHJEUUFWTU9BZ1lLOVVDVGhJSHM3OUpHb2FST0xVYkpjeEFBVzh2aXJXTmRma1NOeXgK"
++			"pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEJEQkEyRTJBRjQwNzVENjAKUldSZ1hRZjBLaTY2dmZTNWRpaVdxRkluS3lWL3B1SjVkeGZxZE93azgxZ1p2Zkx3OWxnNGVmV3YK"
 +		}
 +	},
 +	"bundle": {
