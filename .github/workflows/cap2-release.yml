@@ -190,7 +190,10 @@ jobs:
           codesign --verify --deep --strict "$APP"
           codesign -d -r- "$APP" 2>&1 | tail -1
           tar -C "$(dirname "$APP")" -czf "$ARCHIVE" "$(basename "$APP")"
-          pnpm --dir apps/desktop tauri signer sign "$PWD/$ARCHIVE"
+          UPDATER_KEY="$RUNNER_TEMP/cap2-updater.key"
+          printf '%s' "$TAURI_SIGNING_PRIVATE_KEY" > "$UPDATER_KEY"
+          pnpm --dir apps/desktop tauri signer sign --private-key-path "$UPDATER_KEY" --password "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" "$PWD/$ARCHIVE"
+          rm -f "$UPDATER_KEY"
           ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
           echo "APP_ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
           echo "APP_ZIP=$ZIP" >> "$GITHUB_ENV"
