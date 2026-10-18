@@ -78,12 +78,7 @@ jobs:
             git commit -m "chore(mobile): align Expo SDK dependencies"
           fi
 
-          sensitive=$(git diff --unified=0 origin/main HEAD -- .github | sed -n '/^+[^+]/p' | grep -E '(actions|pull-requests|id-token|security-events):[[:space:]]*write|blacksmith-[0-9]' || true)
-          if [ -n "$sensitive" ]; then
-            echo "::error::Upstream introduces write permissions or third-party runners that require owner review before publishing."
-            printf '%s\n' "$sensitive"
-            exit 1
-          fi
+          python3 scripts/resolve-upstream-migration.py --check-workflow-policy
           branch=$(git branch --show-current)
           git push origin "HEAD:refs/heads/$branch"
           echo "Prepared review branch $branch; main was not changed." >> "$GITHUB_STEP_SUMMARY"

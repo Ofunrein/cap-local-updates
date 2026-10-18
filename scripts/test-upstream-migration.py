@@ -36,6 +36,17 @@ class MigrationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             migration.resolve_ci("<<<<<<< HEAD\n  tests: {}\n=======\n>>>>>>> upstream/main\n")
 
+    def test_preserves_explicit_null_and_independent_deletion(self):
+        result = migration.merge_value({"a": 1, "b": None}, {"b": None}, {"a": 1, "b": None, "c": 2})
+        self.assertEqual(result, {"b": None, "c": 2})
+
+    def test_blocks_new_write_scopes_and_external_runners(self):
+        findings = migration.sensitive_changes("+      actions: write\n+      pull-requests: write\n+    runs-on: blacksmith-8vcpu-ubuntu-2404\n")
+        self.assertEqual(len(findings), 3)
+
+    def test_allows_read_only_scopes_and_removed_permissions(self):
+        self.assertEqual(migration.sensitive_changes("-      actions: write\n+      contents: read\n+    runs-on: ubuntu-latest\n"), [])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -6,17 +6,23 @@ import re
 import subprocess
 import sys
 
+MISSING = object()
+
+
+def clone(value):
+    return MISSING if value is MISSING else copy.deepcopy(value)
+
 
 def merge_value(base, ours, theirs, path="package.json"):
     if ours == theirs or theirs == base:
-        return copy.deepcopy(ours)
+        return clone(ours)
     if ours == base:
-        return copy.deepcopy(theirs)
+        return clone(theirs)
     if all(isinstance(value, dict) for value in (base, ours, theirs)):
         result = {}
         for key in dict.fromkeys([*base, *ours, *theirs]):
-            value = merge_value(base.get(key), ours.get(key), theirs.get(key), f"{path}.{key}")
-            if value is not None:
+            value = merge_value(base.get(key, MISSING), ours.get(key, MISSING), theirs.get(key, MISSING), f"{path}.{key}")
+            if value is not MISSING:
                 result[key] = value
         return result
     raise ValueError(f"Conflicting upstream change requires review: {path}")
@@ -62,7 +68,28 @@ def git(*args):
     return subprocess.check_output(["git", *args], text=True)
 
 
+def sensitive_changes(diff):
+    findings = set()
+    for line in diff.splitlines():
+        if not line.startswith("+") or line.startswith("+++"):
+            continue
+        if re.search(r"blacksmith-\d", line):
+            findings.add("third-party Blacksmith runner integration")
+        if re.search(r"permissions:\s*write-all", line):
+            findings.add("write-all workflow token permission")
+        match = re.search(r"\b(actions|attestations|checks|contents|deployments|discussions|id-token|issues|packages|pages|pull-requests|repository-projects|security-events|statuses):\s*write\b", line)
+        if match:
+            findings.add(f"{match.group(1)}: write token permission")
+    return sorted(findings)
+
+
 def main():
+    if sys.argv[1:] == ["--check-workflow-policy"]:
+        findings = sensitive_changes(git("diff", "--unified=0", "origin/main", "HEAD", "--", ".github"))
+        if findings:
+            raise ValueError("Owner review required before publishing: " + "; ".join(findings))
+        print("No new workflow write scopes or third-party runners detected.")
+        return
     conflicts = git("diff", "--name-only", "--diff-filter=U").splitlines()
     allowed = {"package.json", "pnpm-lock.yaml", ".github/workflows/ci.yml"}
     if not conflicts or set(conflicts) - allowed:
@@ -76,8 +103,7 @@ def main():
     if not manager.startswith("bun@"):
         raise ValueError("Expected the reviewed upstream Bun migration")
     if "pnpm-lock.yaml" in conflicts:
-        deleted = subprocess.run(["git", "cat-file", "-e", "upstream/main:pnpm-lock.yaml"], capture_output=True)
-        if deleted.returncode == 0:
+        if git("ls-tree", "upstream/main", "--", "pnpm-lock.yaml").strip():
             raise ValueError("Upstream retained a pnpm lockfile; manual review required")
         subprocess.run(["git", "rm", "--", "pnpm-lock.yaml"], check=True)
     if ".github/workflows/ci.yml" in conflicts:
