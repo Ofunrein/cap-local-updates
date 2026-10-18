@@ -1,6 +1,7 @@
 "use client";
 
-import Script from "next/script";
+import { JsonLdScript } from "@/components/json-ld-script";
+
 import { SeoPageTemplate } from "../../seo/SeoPageTemplate";
 
 export const screenRecordMacContent = {
@@ -134,10 +135,9 @@ const createFaqStructuredData = () => {
 export const ScreenRecordMacPage = () => {
 	return (
 		<>
-			<Script
-				id="faq-structured-data"
-				type="application/ld+json"
-				dangerouslySetInnerHTML={{ __html: createFaqStructuredData() }}
+			<JsonLdScript
+				idPrefix="faq-structured-data"
+				json={createFaqStructuredData()}
 			/>
 			<SeoPageTemplate content={screenRecordMacContent} />
 		</>

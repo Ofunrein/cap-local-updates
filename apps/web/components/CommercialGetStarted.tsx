@@ -2,7 +2,7 @@
 
 import { Button } from "@cap/ui";
 
-export function CommercialGetStarted() {
+export function CommercialGetStarted({ featuresId }: { featuresId: string }) {
 	const handleSmoothScroll = (
 		e: React.MouseEvent<HTMLButtonElement>,
 		targetId: string,
@@ -27,7 +27,7 @@ export function CommercialGetStarted() {
 			}}
 		>
 			<div
-				id="cloud-4"
+				data-cloud-effect="4"
 				className="absolute top-0 -right-20 opacity-50 z-0 pointer-events-none"
 			>
 				<img
@@ -37,7 +37,7 @@ export function CommercialGetStarted() {
 				/>
 			</div>
 			<div
-				id="cloud-5"
+				data-cloud-effect="5"
 				className="absolute bottom-0 left-0 opacity-50 z-0 pointer-events-none"
 			>
 				<img
@@ -60,10 +60,10 @@ export function CommercialGetStarted() {
 				<div className="flex flex-col sm:flex-row items-center justify-center space-y-2 sm:space-y-0 sm:space-x-2">
 					<Button
 						variant="white"
-						href="#features"
+						href={`#${featuresId}`}
 						size="lg"
 						className="w-full sm:w-auto"
-						onClick={(e) => handleSmoothScroll(e, "features")}
+						onClick={(e) => handleSmoothScroll(e, featuresId)}
 					>
 						Learn More
 					</Button>

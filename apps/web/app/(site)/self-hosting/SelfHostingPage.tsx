@@ -7,7 +7,7 @@ import { CommercialGetStarted } from "@/components/CommercialGetStarted";
 import { FeatureCard } from "@/components/pages/_components/FeatureCard";
 import { LogoSection } from "@/components/pages/_components/LogoSection";
 
-export const SelfHostingPage = () => {
+export const SelfHostingPage = ({ featuresId }: { featuresId: string }) => {
 	const handleSmoothScroll = (
 		e: React.MouseEvent<HTMLButtonElement>,
 		targetId: string,
@@ -38,10 +38,10 @@ export const SelfHostingPage = () => {
 				<div className="flex flex-col justify-center items-center mb-5 space-y-2 fade-in-up animate-delay-2 sm:flex-row sm:space-y-0 sm:space-x-2">
 					<Button
 						variant="blue"
-						href="#features"
+						href={`#${featuresId}`}
 						size="lg"
 						className="flex justify-center items-center w-full font-medium text-md sm:w-auto"
-						onClick={(e) => handleSmoothScroll(e, "features")}
+						onClick={(e) => handleSmoothScroll(e, featuresId)}
 					>
 						Learn More
 					</Button>
@@ -53,7 +53,7 @@ export const SelfHostingPage = () => {
 				/>
 			</div>
 			<LogoSection />
-			<div className="pb-32 wrapper md:pb-40" id="features">
+			<div className="pb-32 wrapper md:pb-40" id={featuresId}>
 				<div className="space-y-3">
 					{/* Section 1: 35% / 65% split */}
 					<div className="grid grid-cols-1 gap-3 md:grid-cols-12">
@@ -116,7 +116,7 @@ export const SelfHostingPage = () => {
 				</div>
 			</div>
 			<div className="px-5 mb-32 md:mb-40">
-				<CommercialGetStarted />
+				<CommercialGetStarted featuresId={featuresId} />
 			</div>
 		</div>
 	);

@@ -28,7 +28,10 @@ const CommentStamp: React.FC<CommentStampsProps> = ({
 	hoveredComment,
 }: CommentStampsProps) => {
 	return (
-		<div
+		<section
+			aria-label="Comment on timeline"
+			onFocus={() => handleMouseEnter(comment.id)}
+			onBlur={handleMouseLeave}
 			key={comment.id}
 			data-comment-stamp=""
 			className="absolute z-[50]"
@@ -43,6 +46,7 @@ const CommentStamp: React.FC<CommentStampsProps> = ({
 			{/* Comment marker */}
 			<button
 				type="button"
+				aria-label={`Seek to comment by ${comment.authorName || "Anonymous"}`}
 				onClick={() => {
 					if (onSeek && comment.timestamp !== null) {
 						onSeek(Number(comment.timestamp));
@@ -84,7 +88,7 @@ const CommentStamp: React.FC<CommentStampsProps> = ({
 					</div>
 				</div>
 			)}
-		</div>
+		</section>
 	);
 };
 

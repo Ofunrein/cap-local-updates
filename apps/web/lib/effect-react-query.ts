@@ -25,7 +25,7 @@ type Override<TTargetA, TTargetB> = {
 };
 
 export function makeUseEffectQuery<R>(
-	useEffectRuntime: () => ManagedRuntime.ManagedRuntime<R, any>,
+	useEffectRuntime: () => ManagedRuntime.ManagedRuntime<R, unknown>,
 ) {
 	return function useEffectQuery<
 		TData,
@@ -50,11 +50,11 @@ export function makeUseEffectQuery<R>(
 		const throwOnDefect = options.throwOnDefect ?? false;
 
 		const runtime = useEffectRuntime();
-		const queryFn = options.queryFn;
+		const { queryFn, ...queryOptions } = options;
 		const throwOnError = options.throwOnError;
 
 		const baseResults = useQuery<TData, TExposedError, TData, TQueryKey>({
-			...(options as any),
+			...queryOptions,
 			...(typeof queryFn === "function"
 				? {
 						queryFn: async (args) => {
@@ -89,7 +89,7 @@ export function makeUseEffectQuery<R>(
 				? {
 						throwOnError: (error, query) => {
 							// this is safe because internally when we call useQuery we always throw the full cause or UnknownException
-							const cause = error as
+							const cause = error as unknown as
 								| Cause.Cause<TError>
 								| Cause.UnknownException;
 							// if the cause is UnknownException, we always return true and throw it
@@ -172,7 +172,7 @@ export function makeUseEffectQuery<R>(
 }
 
 export function makeUseEffectMutation<R>(
-	useEffectRuntime: () => ManagedRuntime.ManagedRuntime<R, any>,
+	useEffectRuntime: () => ManagedRuntime.ManagedRuntime<R, unknown>,
 ) {
 	return function useEffectMutation<
 		TData,
@@ -235,7 +235,7 @@ export function makeUseEffectMutation<R>(
 			) => void;
 		}
 	> {
-		const mutationFn = options.mutationFn;
+		const { mutationFn, ...mutationOptions } = options;
 		const throwOnDefect = options.throwOnDefect ?? false;
 		const throwOnError = options.throwOnError;
 		const _onMutate = options.onMutate;
@@ -245,156 +245,158 @@ export function makeUseEffectMutation<R>(
 
 		const runtime = useEffectRuntime();
 
-		const baseResults = useMutation({
-			...(options as any),
-			mutationFn:
-				typeof mutationFn === "function"
-					? async (variables: TVariables) => {
-							let mutationEffect: Effect.Effect<TData, TError, R>;
-							try {
-								mutationEffect = mutationFn(variables);
-							} catch (e) {
-								throw new Cause.UnknownException(e, "mutationFn threw");
-							}
-							const effectToRun = mutationEffect;
-							// .pipe(
-							//   Effect.withSpan("useEffectMutation", {
-							//     attributes: {
-							//       mutationFn: mutationFn.toString(),
-							//     },
-							//   })
-							// );
-							const result = await runtime.runPromiseExit(effectToRun);
-							console.log({ result });
-							if (Exit.isFailure(result)) {
-								// we always throw the cause
-								throw result.cause;
-							} else {
-								return result.value;
-							}
-						}
-					: mutationFn,
-			throwOnError:
-				typeof throwOnError === "function"
-					? (error: Cause.Cause<TError>) => {
-							// this is safe because internally when we call useQuery we always throw the full cause or UnknownException
-							const cause = error as
-								| Cause.Cause<TError>
-								| Cause.UnknownException;
-
-							// if the cause is UnknownException, we always return true and throw it
-							if (Cause.isUnknownException(cause)) {
-								return true;
-							}
-
-							const failureOrCause = Cause.failureOrCause(cause);
-
-							if (throwOnDefect) {
-								// in this case options.throwOnError expects a TError
-
-								// the cause was a fail, so we have TError
-								if (Either.isLeft(failureOrCause)) {
-									// this is safe because if throwOnDefect is true then TExposedError is TError
-									const exposedError =
-										failureOrCause.left as unknown as TExposedError;
-									return throwOnError(exposedError);
+		const baseResults = useMutation<TData, TExposedError, TVariables, TContext>(
+			{
+				...mutationOptions,
+				mutationFn:
+					typeof mutationFn === "function"
+						? async (variables: TVariables) => {
+								let mutationEffect: Effect.Effect<TData, TError, R>;
+								try {
+									mutationEffect = mutationFn(variables);
+								} catch (e) {
+									throw new Cause.UnknownException(e, "mutationFn threw");
+								}
+								const effectToRun = mutationEffect;
+								// .pipe(
+								//   Effect.withSpan("useEffectMutation", {
+								//     attributes: {
+								//       mutationFn: mutationFn.toString(),
+								//     },
+								//   })
+								// );
+								const result = await runtime.runPromiseExit(effectToRun);
+								console.log({ result });
+								if (Exit.isFailure(result)) {
+									// we always throw the cause
+									throw result.cause;
 								} else {
-									// the cause was a die or interrupt, so we return true
+									return result.value;
+								}
+							}
+						: mutationFn,
+				throwOnError:
+					typeof throwOnError === "function"
+						? (error: TExposedError) => {
+								// this is safe because internally when we call useQuery we always throw the full cause or UnknownException
+								const cause = error as unknown as
+									| Cause.Cause<TError>
+									| Cause.UnknownException;
+
+								// if the cause is UnknownException, we always return true and throw it
+								if (Cause.isUnknownException(cause)) {
 									return true;
 								}
-							} else {
-								// in this case options.throwOnError expects a Cause<TError>
-								// this is safe because if throwOnDefect is false then TExposedError is Cause<TError>
-								const exposedError = cause as unknown as TExposedError;
-								return throwOnError(exposedError);
+
+								const failureOrCause = Cause.failureOrCause(cause);
+
+								if (throwOnDefect) {
+									// in this case options.throwOnError expects a TError
+
+									// the cause was a fail, so we have TError
+									if (Either.isLeft(failureOrCause)) {
+										// this is safe because if throwOnDefect is true then TExposedError is TError
+										const exposedError =
+											failureOrCause.left as unknown as TExposedError;
+										return throwOnError(exposedError);
+									} else {
+										// the cause was a die or interrupt, so we return true
+										return true;
+									}
+								} else {
+									// in this case options.throwOnError expects a Cause<TError>
+									// this is safe because if throwOnDefect is false then TExposedError is Cause<TError>
+									const exposedError = cause as unknown as TExposedError;
+									return throwOnError(exposedError);
+								}
 							}
-						}
-					: throwOnError,
-			// onMutate:
-			//   typeof onMutate === "function"
-			//     ? async (...args) => {
-			//         return await runtime.runPromise(
-			//           onMutate(...args)
-			//           // .pipe(
-			//           //   Effect.withSpan("useEffectMutation.onMutate", {
-			//           //     attributes: {
-			//           //       mutationFn: mutationFn?.toString(),
-			//           //     },
-			//           //   })
-			//           // )
-			//         );
-			//       }
-			//     : undefined,
-			// onSuccess:
-			//   typeof onSuccess === "function"
-			//     ? async (...args) => {
-			//         return await runtime.runPromise(
-			//           onSuccess(...args)
-			//           // .pipe(
-			//           //   Effect.withSpan("useEffectMutation.onSuccess", {
-			//           //     attributes: {
-			//           //       mutationFn: mutationFn?.toString(),
-			//           //     },
-			//           //   })
-			//           // )
-			//         );
-			//       }
-			//     : undefined,
-			// onError:
-			//   typeof onError === "function"
-			//     ? async (baseError, ...args) => {
-			//         const error = throwOnDefect
-			//           ? Either.match(Cause.failureOrCause(baseError), {
-			//               onLeft: (error) => error as unknown as TExposedError, // if throwOnDefect is true then TExposedError is TError
-			//               onRight: (_cause) => {
-			//                 throw new Error(
-			//                   "non fail cause with throwOnDefect: true should have thrown already"
-			//                 );
-			//               },
-			//             })
-			//           : (baseError as unknown as TExposedError);
+						: throwOnError,
+				// onMutate:
+				//   typeof onMutate === "function"
+				//     ? async (...args) => {
+				//         return await runtime.runPromise(
+				//           onMutate(...args)
+				//           // .pipe(
+				//           //   Effect.withSpan("useEffectMutation.onMutate", {
+				//           //     attributes: {
+				//           //       mutationFn: mutationFn?.toString(),
+				//           //     },
+				//           //   })
+				//           // )
+				//         );
+				//       }
+				//     : undefined,
+				// onSuccess:
+				//   typeof onSuccess === "function"
+				//     ? async (...args) => {
+				//         return await runtime.runPromise(
+				//           onSuccess(...args)
+				//           // .pipe(
+				//           //   Effect.withSpan("useEffectMutation.onSuccess", {
+				//           //     attributes: {
+				//           //       mutationFn: mutationFn?.toString(),
+				//           //     },
+				//           //   })
+				//           // )
+				//         );
+				//       }
+				//     : undefined,
+				// onError:
+				//   typeof onError === "function"
+				//     ? async (baseError, ...args) => {
+				//         const error = throwOnDefect
+				//           ? Either.match(Cause.failureOrCause(baseError), {
+				//               onLeft: (error) => error as unknown as TExposedError, // if throwOnDefect is true then TExposedError is TError
+				//               onRight: (_cause) => {
+				//                 throw new Error(
+				//                   "non fail cause with throwOnDefect: true should have thrown already"
+				//                 );
+				//               },
+				//             })
+				//           : (baseError as unknown as TExposedError);
 
-			//         return await runtime.runPromise(
-			//           onError(error, ...args)
-			//           // .pipe(
-			//           //   Effect.withSpan("useEffectMutation.onError", {
-			//           //     attributes: {
-			//           //       mutationFn: mutationFn?.toString(),
-			//           //     },
-			//           //   })
-			//           // )
-			//         );
-			//       }
-			//     : undefined,
-			// onSettled:
-			//   typeof onSettled === "function"
-			//     ? async (data, baseError, ...args) => {
-			//         const error = baseError
-			//           ? throwOnDefect
-			//             ? Either.match(Cause.failureOrCause(baseError), {
-			//                 onLeft: (error) => error as unknown as TExposedError, // if throwOnDefect is true then TExposedError is TError
-			//                 onRight: (_cause) => {
-			//                   throw new Error(
-			//                     "non fail cause with throwOnDefect: true should have thrown already"
-			//                   );
-			//                 },
-			//               })
-			//             : (baseError as unknown as TExposedError)
-			//           : null;
+				//         return await runtime.runPromise(
+				//           onError(error, ...args)
+				//           // .pipe(
+				//           //   Effect.withSpan("useEffectMutation.onError", {
+				//           //     attributes: {
+				//           //       mutationFn: mutationFn?.toString(),
+				//           //     },
+				//           //   })
+				//           // )
+				//         );
+				//       }
+				//     : undefined,
+				// onSettled:
+				//   typeof onSettled === "function"
+				//     ? async (data, baseError, ...args) => {
+				//         const error = baseError
+				//           ? throwOnDefect
+				//             ? Either.match(Cause.failureOrCause(baseError), {
+				//                 onLeft: (error) => error as unknown as TExposedError, // if throwOnDefect is true then TExposedError is TError
+				//                 onRight: (_cause) => {
+				//                   throw new Error(
+				//                     "non fail cause with throwOnDefect: true should have thrown already"
+				//                   );
+				//                 },
+				//               })
+				//             : (baseError as unknown as TExposedError)
+				//           : null;
 
-			//         return await runtime.runPromise(
-			//           onSettled(data, error, ...args)
-			//           // .pipe(
-			//           //   Effect.withSpan("useEffectMutation.onSettled", {
-			//           //     attributes: {
-			//           //       mutationFn: mutationFn?.toString(),
-			//           //     },
-			//           //   })
-			//           // )
-			//         );
-			//       }
-			//     : undefined,
-		});
+				//         return await runtime.runPromise(
+				//           onSettled(data, error, ...args)
+				//           // .pipe(
+				//           //   Effect.withSpan("useEffectMutation.onSettled", {
+				//           //     attributes: {
+				//           //       mutationFn: mutationFn?.toString(),
+				//           //     },
+				//           //   })
+				//           // )
+				//         );
+				//       }
+				//     : undefined,
+			},
+		);
 
 		//  the results from react query all have getters which trigger fine grained tracking, we need to replicate this when we wrap the results
 		const resultsProxy = new Proxy(baseResults, {
@@ -436,13 +438,13 @@ export function makeUseEffectMutation<R>(
 							: target.failureReason // if throwOnDefect is false then TExposedError is Cause<TError>, and base error is always Cause<TError>
 						: null;
 				} else if (prop === "mutate") {
-					return (variables: any, options: any) => {
-						return target.mutate(variables, options);
+					return (...args: Parameters<typeof target.mutate>) => {
+						return target.mutate(...args);
 					};
 				} else if (prop === "mutateAsync") {
-					return (variables: any, options: any) =>
+					return (...args: Parameters<typeof target.mutateAsync>) =>
 						target
-							.mutateAsync(variables, options)
+							.mutateAsync(...args)
 							.then((res) => Exit.succeed(res))
 							// we always throw the cause, so we can always catch it
 							.catch((cause: Cause.Cause<TError>) =>

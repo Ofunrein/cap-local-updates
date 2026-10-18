@@ -2,6 +2,7 @@
 
 import clsx from "clsx";
 import { memo, type RefObject, useCallback, useEffect, useRef } from "react";
+import { withOccurrenceKeys } from "@/lib/occurrence-keys";
 import { usePlayback } from "../playback/PlaybackContext";
 import { useTimelineActions, useTimelineWindowRef } from "./TimelineProvider";
 import { TimelineWaveform } from "./TimelineWaveform";
@@ -285,11 +286,13 @@ const FilmstripTiles = memo(function FilmstripTiles({
 	return (
 		<>
 			<div aria-hidden className="absolute inset-0 flex">
-				{Array.from({ length: tileCount }, (_, index) => {
-					const src = tiles[index] ?? null;
+				{withOccurrenceKeys(
+					Array.from({ length: tileCount }, (_, index) => tiles[index] ?? null),
+					(src) => src ?? "pending",
+				).map(({ key, value: src }) => {
 					return (
 						<div
-							key={index}
+							key={key}
 							className={clsx(
 								"relative h-full min-w-0 flex-1",
 								!src && "animate-pulse bg-gray-4",

@@ -1,5 +1,5 @@
 import { Clapperboard, Zap } from "lucide-react";
-import Script from "next/script";
+import { JsonLdScript } from "@/components/json-ld-script";
 import { SeoPageTemplate } from "@/components/seo/SeoPageTemplate";
 import type { SeoPageContent } from "@/components/seo/types";
 
@@ -222,10 +222,9 @@ const createFaqStructuredData = () => {
 export const OnlineClassroomToolsPage = () => {
 	return (
 		<>
-			<Script
-				id="faq-structured-data"
-				type="application/ld+json"
-				dangerouslySetInnerHTML={{ __html: createFaqStructuredData() }}
+			<JsonLdScript
+				idPrefix="faq-structured-data"
+				json={createFaqStructuredData()}
 			/>
 			<SeoPageTemplate content={onlineClassroomToolsContent} />
 		</>

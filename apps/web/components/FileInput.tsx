@@ -87,7 +87,7 @@ export const FileInput: React.FC<FileInputProps> = ({
 		};
 	}, [previewUrl, isLocalPreview]);
 
-	const handleDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
+	const handleDragEnter = (e: React.DragEvent<HTMLElement>) => {
 		e.preventDefault();
 		e.stopPropagation();
 		if (!disabled) {
@@ -95,13 +95,13 @@ export const FileInput: React.FC<FileInputProps> = ({
 		}
 	};
 
-	const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+	const handleDragLeave = (e: React.DragEvent<HTMLElement>) => {
 		e.preventDefault();
 		e.stopPropagation();
 		setIsDragging(false);
 	};
 
-	const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+	const handleDragOver = (e: React.DragEvent<HTMLElement>) => {
 		e.preventDefault();
 		e.stopPropagation();
 		if (!disabled) {
@@ -110,7 +110,7 @@ export const FileInput: React.FC<FileInputProps> = ({
 		}
 	};
 
-	const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+	const handleDrop = (e: React.DragEvent<HTMLElement>) => {
 		e.preventDefault();
 		e.stopPropagation();
 		setIsDragging(false);
@@ -270,7 +270,9 @@ export const FileInput: React.FC<FileInputProps> = ({
 						</Tooltip>
 					</div>
 				) : (
-					<div
+					<button
+						type="button"
+						disabled={disabled || isLoading}
 						onClick={() => !disabled && fileInputRef.current?.click()}
 						onDragEnter={handleDragEnter}
 						onDragOver={handleDragOver}
@@ -300,7 +302,7 @@ export const FileInput: React.FC<FileInputProps> = ({
 								? "Uploading..."
 								: "Choose a file or drag & drop it here"}
 						</p>
-					</div>
+					</button>
 				)}
 			</div>
 			<Input

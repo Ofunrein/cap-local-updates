@@ -24,12 +24,17 @@ export namespace ThumbnailRequest {
 						rpc.VideosGetThumbnails(requests.map((r) => r.videoId)).pipe(
 							Effect.flatMap(
 								// biome-ignore lint/suspicious/useIterableCallbackReturn: effect
-								Effect.forEach((result, index) =>
-									Effect.matchEffect(Effect.flatten(result), {
-										onSuccess: (v) => Request.succeed(requests[index]!, v),
-										onFailure: (e) => Request.fail(requests[index]!, e),
-									}),
-								),
+								Effect.forEach((result, index) => {
+									const request = requests[index];
+									if (!request)
+										return Effect.die(
+											new Error("Unexpected thumbnail batch result"),
+										);
+									return Effect.matchEffect(Effect.flatten(result), {
+										onSuccess: (v) => Request.succeed(request, v),
+										onFailure: (e) => Request.fail(request, e),
+									});
+								}),
 							),
 							Effect.catchAll((error) =>
 								Effect.forEach(

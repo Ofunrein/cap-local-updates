@@ -42,7 +42,12 @@ export const UploadPlaceholderCard = () => {
 					<span className="text-sm font-semibold text-white">
 						{getFriendlyStatus(uploadStatus.status)}
 					</span>
-					<svg className="w-4 h-4 transform -rotate-90" viewBox="0 0 20 20">
+					<svg
+						aria-hidden="true"
+						focusable="false"
+						className="w-4 h-4 transform -rotate-90"
+						viewBox="0 0 20 20"
+					>
 						<circle
 							cx="10"
 							cy="10"

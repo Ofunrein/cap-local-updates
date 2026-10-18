@@ -24,7 +24,6 @@ const PlatformSupportArt = memo(() => {
 
 const FAQItem = ({
 	faq,
-	index,
 }: {
 	faq: { question: string; answer: string };
 	index: number;
@@ -612,7 +611,7 @@ export const AgenciesPage = () => {
 					<div className="mx-auto mb-10 max-w-3xl">
 						<div className="space-y-4">
 							{agenciesContent.faqs.map((faq, index) => (
-								<FAQItem key={index} faq={faq} index={index} />
+								<FAQItem key={faq.question} faq={faq} index={index} />
 							))}
 						</div>
 					</div>

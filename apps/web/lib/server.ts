@@ -78,7 +78,7 @@ const WorkflowRpcLive = Layer.unwrapScoped(
 		const authMiddleware = RpcMiddleware.layerClient(
 			Workflows.SecretAuthMiddleware,
 			({ request }) =>
-				Effect.gen(function* () {
+				Effect.sync(() => {
 					return {
 						...request,
 						headers: Headers.set(

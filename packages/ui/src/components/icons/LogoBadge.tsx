@@ -1,6 +1,7 @@
 export const LogoBadge = ({ className }: { className: string }) => {
 	return (
 		<svg
+			role="img"
 			xmlns="http://www.w3.org/2000/svg"
 			className={className}
 			fill="none"
@@ -10,6 +11,7 @@ export const LogoBadge = ({ className }: { className: string }) => {
 				aspectRatio: "1 / 1",
 			}}
 		>
+			<title>Cap logo</title>
 			<rect width="40" height="40" fill="#fff" rx="8"></rect>
 			<path
 				fill="#4785FF"

@@ -7,6 +7,7 @@ import {
 } from "@/components/tools/MediaFormatConverter";
 import { ToolsPageTemplate } from "@/components/tools/ToolsPageTemplate";
 import type { ToolPageContent } from "@/components/tools/types";
+import { escapeJsonForScript } from "@/lib/json-ld";
 import { ogImageUrl } from "@/lib/og/url";
 import { createBreadcrumbSchema } from "@/utils/web-schema";
 
@@ -139,12 +140,9 @@ export default async function ConversionPage(props: ConversionPageProps) {
 
 	return (
 		<>
-			<script
-				type="application/ld+json"
-				dangerouslySetInnerHTML={{
-					__html: JSON.stringify(breadcrumbSchema),
-				}}
-			/>
+			<script type="application/ld+json">
+				{escapeJsonForScript(JSON.stringify(breadcrumbSchema))}
+			</script>
 			<ToolsPageTemplate
 				content={pageContent}
 				toolComponent={

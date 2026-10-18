@@ -143,23 +143,25 @@ export const CapCardContent: React.FC<CapContentProps> = ({
 
 			if (!hasSpaceSharing && !isPublic) {
 				return (
-					<p
+					<button
+						type="button"
 						className={baseClassName}
 						onClick={() => setIsSharingDialogOpen(true)}
 					>
 						Not shared{" "}
 						<FontAwesomeIcon className="ml-2 size-2.5" icon={faChevronDown} />
-					</p>
+					</button>
 				);
 			} else {
 				return (
-					<p
+					<button
+						type="button"
 						className={baseClassName}
 						onClick={() => setIsSharingDialogOpen(true)}
 					>
 						Shared{" "}
 						<FontAwesomeIcon className="ml-1 size-2.5" icon={faChevronDown} />
-					</p>
+					</button>
 				);
 			}
 		} else {
@@ -181,17 +183,16 @@ export const CapCardContent: React.FC<CapContentProps> = ({
 						onKeyDown={(e) => handleTitleKeyDown(e)}
 						className="text-md resize-none bg-transparent truncate w-full border-0 outline-0 text-gray-12 font-medium p-0 m-0 h-[1.25rem] overflow-hidden leading-[1.25rem] tracking-normal font-[inherit]"
 					/>
-				) : (
-					<p
-						className="text-md truncate leading-[1.25rem] text-gray-12 font-medium p-0 m-0 h-[1.25rem] tracking-normal"
-						onClick={() => {
-							if (!sharedCapCard) {
-								if (userId === cap.ownerId) {
-									setIsEditing(true);
-								}
-							}
-						}}
+				) : !sharedCapCard && userId === cap.ownerId ? (
+					<button
+						type="button"
+						className="block w-full text-left text-md truncate leading-[1.25rem] text-gray-12 font-medium p-0 m-0 h-[1.25rem] tracking-normal"
+						onClick={() => setIsEditing(true)}
 					>
+						{title}
+					</button>
+				) : (
+					<p className="text-md truncate leading-[1.25rem] text-gray-12 font-medium p-0 m-0 h-[1.25rem] tracking-normal">
 						{title}
 					</p>
 				)}
@@ -214,14 +215,15 @@ export const CapCardContent: React.FC<CapContentProps> = ({
 					</div>
 				) : (
 					<Tooltip content={`Cap created at ${effectiveDate}`}>
-						<p
+						<button
+							type="button"
 							className="text-sm truncate text-gray-10 cursor-pointer flex items-center h-full leading-[1.5rem]"
 							onClick={handleDateClick}
 						>
 							{showFullDate
 								? moment(effectiveDate).format("YYYY-MM-DD HH:mm:ss")
 								: moment(effectiveDate).fromNow()}
-						</p>
+						</button>
 					</Tooltip>
 				)}
 			</div>

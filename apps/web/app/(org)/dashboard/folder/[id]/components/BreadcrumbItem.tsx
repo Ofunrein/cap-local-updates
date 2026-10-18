@@ -31,7 +31,7 @@ export function BreadcrumbItem({
 	const router = useRouter();
 	const { activeSpace } = useDashboardContext();
 
-	const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+	const handleDragOver = (e: React.DragEvent<HTMLElement>) => {
 		e.preventDefault();
 		e.stopPropagation();
 
@@ -42,13 +42,13 @@ export function BreadcrumbItem({
 		}
 	};
 
-	const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+	const handleDragLeave = (e: React.DragEvent<HTMLElement>) => {
 		e.preventDefault();
 		e.stopPropagation();
 		setIsDragOver(false);
 	};
 
-	const handleDrop = async (e: React.DragEvent<HTMLDivElement>) => {
+	const handleDrop = async (e: React.DragEvent<HTMLElement>) => {
 		e.preventDefault();
 		e.stopPropagation();
 		setIsDragOver(false);
@@ -78,7 +78,8 @@ export function BreadcrumbItem({
 
 	if (isLast) {
 		return (
-			<div
+			<section
+				aria-label={`Folder ${name}`}
 				className="flex gap-1.5 px-2 items-center"
 				onDragOver={handleDragOver}
 				onDragLeave={handleDragLeave}
@@ -92,12 +93,13 @@ export function BreadcrumbItem({
 				>
 					{name}
 				</p>
-			</div>
+			</section>
 		);
 	}
 
 	return (
-		<div
+		<section
+			aria-label={`Folder ${name}`}
 			onDragOver={handleDragOver}
 			onDragLeave={handleDragLeave}
 			onDrop={handleDrop}
@@ -124,6 +126,6 @@ export function BreadcrumbItem({
 					{name}
 				</p>
 			</Link>
-		</div>
+		</section>
 	);
 }

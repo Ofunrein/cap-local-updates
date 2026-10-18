@@ -180,7 +180,8 @@ const RecordingModePicker = () => {
 										/>
 									</button>
 
-									<span
+									<button
+										type="button"
 										className={`mt-3 text-sm font-medium whitespace-nowrap cursor-pointer transition-[color,opacity] duration-200 ${
 											isSelected
 												? "text-gray-12 opacity-100"
@@ -189,7 +190,7 @@ const RecordingModePicker = () => {
 										onClick={() => handleSelect(mode.id)}
 									>
 										{mode.title}
-									</span>
+									</button>
 								</div>
 							);
 						})}
@@ -244,7 +245,8 @@ const RecordingModePicker = () => {
 										/>
 									</button>
 
-									<span
+									<button
+										type="button"
 										className={`mt-4 text-[15px] font-medium whitespace-nowrap cursor-pointer transition-[color,opacity] duration-200 ${
 											isSelected
 												? "text-gray-12 opacity-100"
@@ -253,7 +255,7 @@ const RecordingModePicker = () => {
 										onClick={() => handleSelect(mode.id)}
 									>
 										{mode.title}
-									</span>
+									</button>
 								</div>
 							);
 						})}

@@ -34,7 +34,8 @@ export const AuthOverlay: React.FC<AuthOverlayProps> = ({
 		<Dialog open={isOpen} onOpenChange={onClose}>
 			<DialogContent className="w-[90vw] bg-gray-3 relative sm:max-w-md p-6 rounded-xl">
 				{emailSent && (
-					<div
+					<button
+						type="button"
 						onClick={() => {
 							setEmailSent(false);
 							setEmail("");
@@ -47,7 +48,7 @@ export const AuthOverlay: React.FC<AuthOverlayProps> = ({
 					>
 						<FontAwesomeIcon className="w-2" icon={faArrowLeft} />
 						<p className="text-xs">Back</p>
-					</div>
+					</button>
 				)}
 				<div className="space-y-6">
 					<LogoBadge className="mx-auto w-auto h-12" />

@@ -10,7 +10,7 @@ import {
 } from "@cap/ui";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import * as z from "zod";
@@ -25,6 +25,8 @@ export interface NewOrganizationProps {
 }
 
 export const NewOrganization: React.FC<NewOrganizationProps> = (props) => {
+	const elementId = useId();
+
 	const formSchema = z.object({
 		name: z.string().min(1),
 	});
@@ -93,7 +95,7 @@ export const NewOrganization: React.FC<NewOrganizationProps> = (props) => {
 					/>
 
 					<div className="space-y-1">
-						<Label htmlFor="icon">Organization Icon</Label>
+						<Label htmlFor={`${elementId}-icon`}>Organization Icon</Label>
 						<CardDescription className="w-full max-w-[400px]">
 							Upload a custom logo or icon for your organization.
 						</CardDescription>
@@ -101,7 +103,7 @@ export const NewOrganization: React.FC<NewOrganizationProps> = (props) => {
 
 					<div className="relative mt-2">
 						<FileInput
-							id="icon"
+							id={`${elementId}-icon`}
 							name="icon"
 							notDraggingClassName="hover:bg-gray-3"
 							onChange={setSelectedFile}

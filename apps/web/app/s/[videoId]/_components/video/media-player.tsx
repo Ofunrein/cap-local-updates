@@ -56,6 +56,7 @@ import { forwardRef, useEffect } from "react";
 import * as ReactDOM from "react-dom";
 import { useComposedRefs } from "@/app/lib/compose-refs";
 import { cn } from "@/app/lib/utils";
+import { omitProps } from "@/lib/omit-props";
 import {
 	formatPlaybackDuration,
 	normalizePlaybackSpeed,
@@ -225,10 +226,10 @@ function createStore(
 			listenersRef.current?.add(cb);
 			return () => listenersRef.current?.delete(cb);
 		},
-		getState: () => stateRef.current!,
+		getState: () => stateRef.current,
 		setState: (key, value) => {
 			if (Object.is(stateRef.current?.[key], value)) return;
-			stateRef.current![key] = value;
+			stateRef.current[key] = value;
 			onValueChange?.[key]?.(value, store);
 			store.notify();
 		},
@@ -1046,9 +1047,8 @@ function MediaPlayerLoading(props: MediaPlayerLoadingProps) {
 		delayMs = 500,
 		asChild,
 		className,
-		children,
 		...loadingProps
-	} = props;
+	} = omitProps(props, ["children"]);
 
 	const isLoading = useMediaSelector(selectLoading);
 	const isPaused = useMediaSelector(selectPaused);
@@ -1376,7 +1376,10 @@ function MediaPlayerControlsOverlay(props: MediaPlayerControlsOverlayProps) {
 interface MediaPlayerPlayProps extends React.ComponentProps<typeof Button> {}
 
 function MediaPlayerPlay(props: MediaPlayerPlayProps) {
-	const { asChild, children, className, disabled, ...playButtonProps } = props;
+	const { children, className, disabled, ...playButtonProps } = omitProps(
+		props,
+		["asChild"],
+	);
 
 	const context = useMediaPlayerContext("MediaPlayerPlay");
 	const dispatch = useMediaDispatch();
@@ -1436,12 +1439,11 @@ interface MediaPlayerSeekBackwardProps
 function MediaPlayerSeekBackward(props: MediaPlayerSeekBackwardProps) {
 	const {
 		seconds = SEEK_STEP_SHORT,
-		asChild,
 		children,
 		className,
 		disabled,
 		...seekBackwardProps
-	} = props;
+	} = omitProps(props, ["asChild"]);
 
 	const context = useMediaPlayerContext("MediaPlayerSeekBackward");
 	const dispatch = useMediaDispatch();
@@ -1495,12 +1497,11 @@ interface MediaPlayerSeekForwardProps
 function MediaPlayerSeekForward(props: MediaPlayerSeekForwardProps) {
 	const {
 		seconds = SEEK_STEP_LONG,
-		asChild,
 		children,
 		className,
 		disabled,
 		...seekForwardProps
-	} = props;
+	} = omitProps(props, ["asChild"]);
 
 	const context = useMediaPlayerContext("MediaPlayerSeekForward");
 	const dispatch = useMediaDispatch();
@@ -2359,7 +2360,6 @@ interface MediaPlayerVolumeProps
 
 function MediaPlayerVolume(props: MediaPlayerVolumeProps) {
 	const {
-		asChild,
 		expandable = false,
 		enhancedAudioEnabled = false,
 		enhancedAudioMuted,
@@ -2367,7 +2367,7 @@ function MediaPlayerVolume(props: MediaPlayerVolumeProps) {
 		className,
 		disabled,
 		...volumeProps
-	} = props;
+	} = omitProps(props, ["asChild"]);
 
 	const context = useMediaPlayerContext(VOLUME_NAME);
 	const store = useStoreContext(VOLUME_NAME);
@@ -2635,12 +2635,11 @@ function MediaPlayerPlaybackSpeed(props: MediaPlayerPlaybackSpeedProps) {
 		onOpenChange: onOpenChangeProp,
 		sideOffset = FLOATING_MENU_SIDE_OFFSET,
 		speeds = SPEEDS,
-		asChild,
 		modal = false,
 		className,
 		disabled,
 		...playbackSpeedProps
-	} = props;
+	} = omitProps(props, ["asChild"]);
 
 	const context = useMediaPlayerContext(PLAYBACK_SPEED_NAME);
 	const store = useStoreContext(PLAYBACK_SPEED_NAME);
@@ -3064,8 +3063,10 @@ interface MediaPlayerPiPProps extends React.ComponentProps<typeof Button> {
 }
 
 function MediaPlayerPiP(props: MediaPlayerPiPProps) {
-	const { children, className, onPipError, disabled, ...pipButtonProps } =
-		props;
+	const { className, onPipError, disabled, ...pipButtonProps } = omitProps(
+		props,
+		["children"],
+	);
 
 	const context = useMediaPlayerContext("MediaPlayerPiP");
 	const dispatch = useMediaDispatch();
@@ -3446,7 +3447,6 @@ function MediaPlayerSettings(props: MediaPlayerSettingsProps) {
 		onOpenChange: onOpenChangeProp,
 		sideOffset = FLOATING_MENU_SIDE_OFFSET,
 		speeds = SPEEDS,
-		asChild,
 		modal = false,
 		className,
 		disabled,
@@ -3459,7 +3459,7 @@ function MediaPlayerSettings(props: MediaPlayerSettingsProps) {
 		isCaptionLoading = false,
 		hasCaptions = false,
 		...settingsProps
-	} = props;
+	} = omitProps(props, ["asChild"]);
 
 	const context = useMediaPlayerContext(SETTINGS_NAME);
 	const store = useStoreContext(SETTINGS_NAME);

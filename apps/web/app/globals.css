@@ -246,8 +246,6 @@ a.bg-primary:hover {
 		stroke-dasharray: 100;
 		stroke-dashoffset: 100;
 	}
-	50% {
-	}
 	100% {
 		stroke-dashoffset: 0;
 	}
@@ -902,7 +900,7 @@ footer a {
 }
 
 /* Safari-specific styles using CSS hacks */
-@media screen and (-webkit-min-device-pixel-ratio: 0) {
+@media screen and (min-resolution: 0dppx) {
 	_::-webkit-full-page-media,
 	_:future,
 	:root #video-container {
