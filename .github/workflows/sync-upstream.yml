@@ -9,49 +9,76 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: sync-upstream-cap
+  cancel-in-progress: false
+
 jobs:
   sync:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
-      - name: Fast-forward from CapSoftware/Cap
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: '1.4.0'
+      - name: Test merge policy
+        run: python3 scripts/test-upstream-migration.py
+      - name: Prepare upstream migration
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git remote add upstream https://github.com/CapSoftware/Cap.git
           git fetch upstream main
           git checkout main
+          git switch -c "sync/upstream-cap-$(git rev-parse --short=12 upstream/main)"
 
           if ! git merge --no-edit upstream/main; then
             conflicts="$(git diff --name-only --diff-filter=U)"
-            if [ "$conflicts" != "pnpm-lock.yaml" ]; then
+            if git show upstream/main:package.json | python3 -c 'import json,sys;sys.exit(not json.load(sys.stdin).get("packageManager", "").startswith("bun@"))'; then
+              python3 scripts/resolve-upstream-migration.py
+              bun install --lockfile-only --ignore-scripts
+              git add package.json bun.lock
+            elif [ "$conflicts" = "pnpm-lock.yaml" ]; then
+              git checkout --theirs pnpm-lock.yaml
+              corepack enable
+              corepack prepare "$(node -p "require('./package.json').packageManager")" --activate
+              pnpm install --lockfile-only --ignore-scripts
+              git add pnpm-lock.yaml
+            else
               echo "Upstream merge has conflicts that require review:"
               printf '%s\n' "$conflicts"
               exit 1
             fi
-
-            # Lockfiles are generated. Rebuild from the merged manifests instead
-            # of letting routine dependency updates break every scheduled sync.
-            git checkout --theirs pnpm-lock.yaml
-            corepack enable
-            corepack prepare "$(node -p "require('./package.json').packageManager")" --activate
-            pnpm install --lockfile-only --ignore-scripts
-            git add pnpm-lock.yaml
             git commit --no-edit
           fi
 
           # Expo's compatibility metadata can advance between upstream commits.
           # Normalize mobile patch versions before pushing so scheduled syncs do
           # not knowingly create a red Mobile CI run.
-          corepack enable
-          corepack prepare "$(node -p "require('./package.json').packageManager")" --activate
-          pnpm install --ignore-scripts
-          pnpm --dir apps/mobile exec expo install --fix
-          if ! git diff --quiet -- apps/mobile/package.json pnpm-lock.yaml; then
-            git add apps/mobile/package.json pnpm-lock.yaml
+          if node -e 'process.exit(!require("./package.json").packageManager.startsWith("bun@"))'; then
+            bun install --frozen-lockfile --ignore-scripts
+            bun run --cwd apps/mobile expo install --fix --bun
+          else
+            corepack enable
+            corepack prepare "$(node -p "require('./package.json').packageManager")" --activate
+            pnpm install --ignore-scripts
+            pnpm --dir apps/mobile exec expo install --fix
+          fi
+          if ! git diff --quiet -- apps/mobile/package.json pnpm-lock.yaml bun.lock; then
+            git add apps/mobile/package.json
+            for lockfile in pnpm-lock.yaml bun.lock; do
+              if [ -f "$lockfile" ]; then git add "$lockfile"; fi
+            done
             git commit -m "chore(mobile): align Expo SDK dependencies"
           fi
 
-          git push origin main
+          python3 scripts/resolve-upstream-migration.py --check-workflow-policy
+          branch=$(git branch --show-current)
+          git push origin "HEAD:refs/heads/$branch"
+          echo "Prepared review branch $branch; main was not changed." >> "$GITHUB_STEP_SUMMARY"
