@@ -1,6 +1,7 @@
 "use client";
 
 import clsx from "clsx";
+import Image from "next/image";
 import { memo, type RefObject, useCallback, useEffect, useRef } from "react";
 import { withOccurrenceKeys } from "@/lib/occurrence-keys";
 import { usePlayback } from "../playback/PlaybackContext";
@@ -299,7 +300,11 @@ const FilmstripTiles = memo(function FilmstripTiles({
 							)}
 						>
 							{src && (
-								<img
+								<Image
+									unoptimized
+									loading="eager"
+									decoding="auto"
+									fill
 									src={src}
 									alt=""
 									draggable={false}

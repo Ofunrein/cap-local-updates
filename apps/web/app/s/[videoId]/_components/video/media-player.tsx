@@ -51,6 +51,7 @@ import {
 	useMediaRef,
 } from "media-chrome/react/media-store";
 import { AnimatePresence, motion } from "motion/react";
+import Image from "next/image";
 import * as React from "react";
 import { forwardRef, useEffect } from "react";
 import * as ReactDOM from "react-dom";
@@ -70,6 +71,12 @@ import {
 	TooltipProvider,
 	TooltipTrigger,
 } from "./tooltip";
+
+type MediaControlButtonProps = Omit<
+	React.ComponentProps<typeof Button>,
+	"ref"
+> &
+	React.RefAttributes<HTMLButtonElement>;
 
 const ROOT_NAME = "MediaPlayer";
 const SEEK_NAME = "MediaPlayerSeek";
@@ -1373,7 +1380,7 @@ function MediaPlayerControlsOverlay(props: MediaPlayerControlsOverlayProps) {
 	);
 }
 
-interface MediaPlayerPlayProps extends React.ComponentProps<typeof Button> {}
+interface MediaPlayerPlayProps extends MediaControlButtonProps {}
 
 function MediaPlayerPlay(props: MediaPlayerPlayProps) {
 	const { children, className, disabled, ...playButtonProps } = omitProps(
@@ -1431,8 +1438,7 @@ function MediaPlayerPlay(props: MediaPlayerPlayProps) {
 	);
 }
 
-interface MediaPlayerSeekBackwardProps
-	extends React.ComponentProps<typeof Button> {
+interface MediaPlayerSeekBackwardProps extends MediaControlButtonProps {
 	seconds?: number;
 }
 
@@ -1489,8 +1495,7 @@ function MediaPlayerSeekBackward(props: MediaPlayerSeekBackwardProps) {
 	);
 }
 
-interface MediaPlayerSeekForwardProps
-	extends React.ComponentProps<typeof Button> {
+interface MediaPlayerSeekForwardProps extends MediaControlButtonProps {
 	seconds?: number;
 }
 
@@ -2301,7 +2306,12 @@ function MediaPlayerSeek(props: MediaPlayerSeekProps) {
 										{thumbnail.coords ? (
 											<div style={spriteStyle} />
 										) : (
-											<img
+											<Image
+												unoptimized
+												loading="eager"
+												decoding="auto"
+												width={SPRITE_CONTAINER_WIDTH}
+												height={SPRITE_CONTAINER_HEIGHT}
 												src={thumbnail.src}
 												alt={`Preview at ${hoverTime}`}
 												className="object-cover size-full"
@@ -2622,7 +2632,7 @@ function MediaPlayerTime(props: MediaPlayerTimeProps) {
 
 interface MediaPlayerPlaybackSpeedProps
 	extends React.ComponentProps<typeof DropdownMenuTrigger>,
-		React.ComponentProps<typeof Button>,
+		MediaControlButtonProps,
 		Omit<React.ComponentProps<typeof DropdownMenu>, "dir">,
 		Pick<React.ComponentProps<typeof DropdownMenuContent>, "sideOffset"> {
 	speeds?: number[];
@@ -2935,7 +2945,7 @@ function MediaPlayerPlaybackSpeedDial(
 	);
 }
 
-interface MediaPlayerLoopProps extends React.ComponentProps<typeof Button> {}
+interface MediaPlayerLoopProps extends MediaControlButtonProps {}
 
 function MediaPlayerLoop(props: MediaPlayerLoopProps) {
 	const { children, className, disabled, ...loopProps } = props;
@@ -3010,8 +3020,7 @@ function MediaPlayerLoop(props: MediaPlayerLoopProps) {
 	);
 }
 
-interface MediaPlayerFullscreenProps
-	extends React.ComponentProps<typeof Button> {}
+interface MediaPlayerFullscreenProps extends MediaControlButtonProps {}
 
 function MediaPlayerFullscreen(props: MediaPlayerFullscreenProps) {
 	const { children, className, disabled, ...fullscreenProps } = props;
@@ -3058,7 +3067,7 @@ function MediaPlayerFullscreen(props: MediaPlayerFullscreenProps) {
 	);
 }
 
-interface MediaPlayerPiPProps extends React.ComponentProps<typeof Button> {
+interface MediaPlayerPiPProps extends MediaControlButtonProps {
 	onPipError?: (error: unknown, state: "enter" | "exit") => void;
 }
 
@@ -3129,7 +3138,7 @@ function MediaPlayerPiP(props: MediaPlayerPiPProps) {
 	);
 }
 
-interface MediaPlayerCaptionsProps extends React.ComponentProps<typeof Button> {
+interface MediaPlayerCaptionsProps extends MediaControlButtonProps {
 	setToggleCaptions?: (toggleCaptions: boolean) => void;
 	toggleCaptions?: boolean;
 }
@@ -3176,8 +3185,7 @@ function MediaPlayerCaptions(props: MediaPlayerCaptionsProps) {
 
 type EnhancedAudioStatus = "PROCESSING" | "COMPLETE" | "ERROR" | "SKIPPED";
 
-interface MediaPlayerEnhancedAudioProps
-	extends React.ComponentProps<typeof Button> {
+interface MediaPlayerEnhancedAudioProps extends MediaControlButtonProps {
 	enhancedAudioStatus?: EnhancedAudioStatus | null;
 	enhancedAudioEnabled?: boolean;
 	setEnhancedAudioEnabled?: (enabled: boolean) => void;
@@ -3371,8 +3379,7 @@ function EnhancedAudioSync({
 	return null;
 }
 
-interface MediaPlayerDownloadProps
-	extends React.ComponentProps<typeof Button> {}
+interface MediaPlayerDownloadProps extends MediaControlButtonProps {}
 
 function MediaPlayerDownload(props: MediaPlayerDownloadProps) {
 	const { children, className, disabled, ...downloadProps } = props;

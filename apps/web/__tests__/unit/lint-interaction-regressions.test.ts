@@ -10,6 +10,7 @@ import {
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { composeRefs, useComposedRefs } from "@/app/lib/compose-refs";
+import { TimelineHoverGhost } from "@/app/s/[videoId]/_components/timeline/TimelineHoverGhost";
 import { TrimmingTool } from "@/components/tools/TrimmingTool";
 import { withOccurrenceKeys } from "@/lib/occurrence-keys";
 import { omitProps } from "@/lib/omit-props";
@@ -25,6 +26,11 @@ vi.mock("@cap/ui", async () => {
 	};
 });
 vi.mock("@/app/utils/analytics", () => ({ trackEvent: vi.fn() }));
+
+const timelineWindow = vi.hoisted(() => ({ current: { start: 0, end: 100 } }));
+vi.mock("@/app/s/[videoId]/_components/timeline/TimelineProvider", () => ({
+	useTimelineWindowRef: () => timelineWindow,
+}));
 
 let root: Root;
 let container: HTMLDivElement;
@@ -164,5 +170,69 @@ describe("trimmer URL lifetime", () => {
 		await act(() => root.unmount());
 		expect(revokeUrl).toHaveBeenCalledTimes(2);
 		expect(revokeUrl).toHaveBeenLastCalledWith("blob:second");
+	});
+});
+
+describe("imperative frame preview", () => {
+	it("keeps direct frame URLs across rerenders and hides missing tiles", async () => {
+		const strip = document.createElement("div");
+		document.body.append(strip);
+		vi.spyOn(strip, "getBoundingClientRect").mockReturnValue({
+			left: 0,
+			width: 400,
+			right: 400,
+			top: 0,
+			bottom: 64,
+			height: 64,
+			x: 0,
+			y: 0,
+			toJSON: () => ({}),
+		});
+		const stripRef = { current: strip };
+		const widthRef = { current: 400 };
+		const onAddAtTime = vi.fn();
+		const render = (tiles: (string | null)[]) =>
+			root.render(
+				createElement(TimelineHoverGhost, {
+					stripRef,
+					widthRef,
+					onAddAtTime,
+					enabled: true,
+					filmstrip: { tiles },
+					tileCount: 2,
+				}),
+			);
+		const move = (x: number) =>
+			strip.dispatchEvent(
+				new MouseEvent("pointermove", { clientX: x, bubbles: true }),
+			);
+		await act(() =>
+			render(["data:image/png;base64,first", "data:image/png;base64,second"]),
+		);
+		const image = container.querySelector("img");
+		if (!image || !image.parentElement)
+			throw new Error("Missing image preview");
+		expect(image.parentElement.style.display).toBe("none");
+		await act(() => move(100));
+		expect(image.getAttribute("src")).toBe("data:image/png;base64,first");
+		expect(image.getAttribute("srcset")).toBeNull();
+		expect(image.parentElement.style.display).toBe("");
+		await act(() =>
+			render([
+				"data:image/png;base64,first",
+				"data:image/png;base64,new-second",
+			]),
+		);
+		expect(image.getAttribute("src")).toBe("data:image/png;base64,first");
+		await act(() => move(300));
+		expect(image.getAttribute("src")).toBe("data:image/png;base64,new-second");
+		const add = container.querySelector("button");
+		if (!add) throw new Error("Missing comment action");
+		await act(() => add.click());
+		expect(onAddAtTime).toHaveBeenCalledExactlyOnceWith(75);
+		await act(() => render(["data:image/png;base64,first", null]));
+		await act(() => move(300));
+		expect(image.parentElement.style.display).toBe("none");
+		strip.remove();
 	});
 });

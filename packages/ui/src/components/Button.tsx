@@ -1,5 +1,5 @@
 import { classNames } from "@cap/utils";
-import { Slot } from "@radix-ui/react-slot";
+import { Slot, Slottable } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
 import * as React from "react";
 import { LoadingSpinner } from "./LoadingSpinner";
@@ -57,7 +57,7 @@ export interface ButtonProps
 	target?: string;
 }
 
-const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
+const Button = React.forwardRef<HTMLElement, ButtonProps>(
 	(
 		{
 			className,
@@ -76,14 +76,22 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
 		},
 		ref,
 	) => {
-		const Comp = href ? "a" : asChild ? Slot : ("button" as any);
+		const Comp = href ? "a" : asChild ? Slot : "button";
+		const elementProps: React.HTMLAttributes<HTMLElement> = props;
+		const elementRef = React.useCallback(
+			(node: HTMLElement | null) => {
+				if (typeof ref === "function") return ref(node);
+				if (ref) ref.current = node;
+			},
+			[ref],
+		);
 		return (
 			<Comp
 				className={classNames(buttonVariants({ variant, size, className }))}
-				ref={ref as any}
+				ref={elementRef}
 				target={target || undefined}
 				href={href || undefined}
-				{...props}
+				{...elementProps}
 			>
 				{spinner && (
 					<LoadingSpinner
@@ -94,7 +102,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
 					/>
 				)}
 				{icon && icon}
-				{props.children}
+				<Slottable>{props.children}</Slottable>
 				{kbd && (
 					<kbd className="hidden justify-center items-center ml-1 text-xs rounded-full border md:flex size-5 bg-gray-11 border-gray-10">
 						{kbd}

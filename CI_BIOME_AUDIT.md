@@ -7,7 +7,7 @@ caption errors remain. No rules or files were suppressed to obtain these counts.
 | Repository-pinned Biome 2.2.0 | Before | After |
 |---|---:|---:|
 | Errors | 216 | 5 |
-| Warnings | 85 | 13 |
+| Warnings | 85 | 1 |
 
 The former workflow used floating `latest` and `biome ci . || true`. This draft
 pins 2.2.0 and propagates its failure. Format and lint retain their separate jobs.
@@ -60,21 +60,35 @@ failing until that decision is implemented and tested.
 
 ## Remaining warnings
 
-Eleven `noImgElement` warnings concern dynamic thumbnails, user GIF output,
-Markdown images and illustration layouts. Migrating them needs real dimensions,
-layout/loading checks and care with blob/signed URLs. Two `noExplicitAny`
-warnings are in the shared polymorphic Button's element/ref bridge; its public
-ref contract needs a separately verified typing change. They remain visible.
+One `noImgElement` warning remains in the Markdown changelog renderer, which
+accepts arbitrary image URLs without intrinsic dimensions. A framework image
+migration needs actual width/height content metadata to preserve its natural
+aspect ratio; fake dimensions or a fixed crop would change the content layout.
+
+Other image warnings are resolved using build-time static image metadata,
+actual GIF encoder dimensions, and existing preview viewport dimensions.
+Already-processed, blob and signed frame URLs stay direct via `unoptimized`;
+eager loading and automatic decoding retain the former browser behavior. The
+imperative hover-preview regression verifies that frame URLs survive rerenders,
+missing tiles remain hidden, and comment insertion time remains correct.
+
+The shared Button exposes the actual polymorphic HTMLElement ref, uses a typed
+stable callback that forwards React 19 cleanup, and keeps native-only media
+control ref types narrow. Four regressions verify native, anchor and Slot refs,
+disabled buttons, composed events, decorators and cleanup. They also caught and
+fixed an existing Slot exception: Radix requires `Slottable` to identify the main
+child when the Button supplies sibling decorations. No `any` casts remain in
+this bridge.
 
 ## Local validation
 
 - Frozen pnpm 10.5.2 lockfile install (scripts disabled): pass; only the existing
   Radix compose-refs snapshot is promoted to a direct dependency.
 - Next route type generation and complete `tsc -b`: pass.
-- Web unit suite: 1,655 tests in 154 files pass, including 15 new rendering,
+- Web unit suite: 1,660 tests in 155 files pass, including 20 new rendering,
   ref lifecycle, props, alias-resolution and trim-preview regressions.
 - Biome formatting/import checks: pass; full pinned lint intentionally exits
-  nonzero for the five real caption errors and reports the 13 warnings above.
+  nonzero for the five real caption errors and reports the one warning above.
 - actionlint 1.7.12 (shellcheck disabled): pass. `git diff --check`: pass.
 
 No hosted run, production build or visual browser test is represented by these

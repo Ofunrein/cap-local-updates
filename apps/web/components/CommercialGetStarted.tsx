@@ -1,6 +1,9 @@
 "use client";
 
 import { Button } from "@cap/ui";
+import Image from "next/image";
+import cloudOne from "../public/illustrations/cloud-1.png";
+import cloudTwo from "../public/illustrations/cloud-2.png";
 
 export function CommercialGetStarted({ featuresId }: { featuresId: string }) {
 	const handleSmoothScroll = (
@@ -30,9 +33,12 @@ export function CommercialGetStarted({ featuresId }: { featuresId: string }) {
 				data-cloud-effect="4"
 				className="absolute top-0 -right-20 opacity-50 z-0 pointer-events-none"
 			>
-				<img
+				<Image
+					unoptimized
+					loading="eager"
+					decoding="auto"
 					className="max-w-[40vw] h-auto"
-					src="/illustrations/cloud-1.png"
+					src={cloudOne}
 					alt="Footer Cloud One"
 				/>
 			</div>
@@ -40,9 +46,12 @@ export function CommercialGetStarted({ featuresId }: { featuresId: string }) {
 				data-cloud-effect="5"
 				className="absolute bottom-0 left-0 opacity-50 z-0 pointer-events-none"
 			>
-				<img
+				<Image
+					unoptimized
+					loading="eager"
+					decoding="auto"
 					className="max-w-[40vw] h-auto"
-					src="/illustrations/cloud-2.png"
+					src={cloudTwo}
 					alt="Footer Cloud Two"
 				/>
 			</div>

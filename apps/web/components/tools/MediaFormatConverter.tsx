@@ -3,6 +3,7 @@
 import { Button } from "@cap/ui";
 import * as MediaParser from "@remotion/media-parser";
 import type { WebCodecsController } from "@remotion/webcodecs";
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
@@ -158,6 +159,10 @@ export const MediaFormatConverter = ({
 	const [isConverting, setIsConverting] = useState(false);
 	const [progress, setProgress] = useState(0);
 	const [outputUrl, setOutputUrl] = useState<string | null>(null);
+	const [gifDimensions, setGifDimensions] = useState<{
+		width: number;
+		height: number;
+	} | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [mediaEngineLoaded, setMediaEngineLoaded] = useState(true);
 	const [isDragging, setIsDragging] = useState(false);
@@ -561,6 +566,7 @@ export const MediaFormatConverter = ({
 			URL.revokeObjectURL(videoElement.src);
 
 			const gifUrl = URL.createObjectURL(gifBlob);
+			setGifDimensions({ width: targetWidth, height: targetHeight });
 			setOutputUrl(gifUrl);
 			setProgress(100);
 
@@ -1092,8 +1098,13 @@ export const MediaFormatConverter = ({
 							className="w-full rounded-lg mb-4"
 						></audio>
 					)}
-					{config.outputType.startsWith("image/") && (
-						<img
+					{config.outputType.startsWith("image/") && gifDimensions && (
+						<Image
+							unoptimized
+							loading="eager"
+							decoding="auto"
+							width={gifDimensions.width}
+							height={gifDimensions.height}
 							src={outputUrl}
 							alt="Converted GIF"
 							className="max-w-full rounded-lg mb-4 mx-auto"
