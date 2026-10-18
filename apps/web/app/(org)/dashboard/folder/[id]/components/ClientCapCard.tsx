@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { omitProps } from "@/lib/omit-props";
 import {
 	CapCard,
 	type CapCardProps,
@@ -12,10 +13,16 @@ type ClientCapCardProps = CapCardProps & {
 	analytics: number;
 };
 
+interface CapDragData {
+	id: CapCardProps["cap"]["id"];
+	name: string;
+	type?: string;
+}
+
 // Interface for drop targets that will be registered for mobile drag and drop
 interface DropTarget {
 	element: HTMLElement;
-	onDrop: (data: any) => void;
+	onDrop: (data: CapDragData) => void;
 	onDragOver?: () => void;
 	onDragLeave?: () => void;
 }
@@ -26,7 +33,7 @@ let dropTargets: DropTarget[] = [];
 // Register a drop target element
 export function registerDropTarget(
 	element: HTMLElement,
-	onDrop: (data: any) => void,
+	onDrop: (data: CapDragData) => void,
 	onDragOver?: () => void,
 	onDragLeave?: () => void,
 ) {
@@ -37,9 +44,11 @@ export function registerDropTarget(
 }
 
 export function ClientCapCard(props: ClientCapCardProps) {
-	const { videoId, isLoadingAnalytics, analytics, ...rest } = props;
+	const { videoId, analytics, ...rest } = omitProps(props, [
+		"isLoadingAnalytics",
+	]);
 	const [isDragging, setIsDragging] = useState(false);
-	const cardRef = useRef<HTMLDivElement>(null);
+	const cardRef = useRef<HTMLElement>(null);
 
 	// Create a drag preview element with thumbnail
 	const createDragPreview = (text: string): HTMLElement => {
@@ -61,7 +70,7 @@ export function ClientCapCard(props: ClientCapCardProps) {
 	};
 
 	// Handle drag start event for desktop
-	const handleDragStart = (e: React.DragEvent<HTMLDivElement>) => {
+	const handleDragStart = (e: React.DragEvent<HTMLElement>) => {
 		// Set the data transfer
 		e.dataTransfer.setData(
 			"application/cap",
@@ -96,7 +105,8 @@ export function ClientCapCard(props: ClientCapCardProps) {
 	};
 
 	return (
-		<div
+		<section
+			aria-label="Draggable recording"
 			ref={cardRef}
 			draggable={true}
 			onDragStart={handleDragStart}
@@ -108,6 +118,6 @@ export function ClientCapCard(props: ClientCapCardProps) {
 				isLoadingAnalytics={props.isLoadingAnalytics}
 				analytics={analytics}
 			/>
-		</div>
+		</section>
 	);
 }

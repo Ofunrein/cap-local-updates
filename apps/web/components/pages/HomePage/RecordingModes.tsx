@@ -66,7 +66,8 @@ const RecordingModes = () => {
 			{/*Toggles*/}
 			<div className="flex flex-col sm:flex-row gap-2 sm:gap-5 mt-[52px]">
 				{modes.map((mode) => (
-					<div
+					<button
+						type="button"
 						onClick={() => handleModeSwitch(mode)}
 						key={mode.name}
 						className={clsx(
@@ -82,7 +83,7 @@ const RecordingModes = () => {
 							{mode.icon}
 							{mode.name}
 						</div>
-					</div>
+					</button>
 				))}
 			</div>
 			{/* Video*/}
@@ -100,6 +101,7 @@ const RecordingModes = () => {
 							}}
 						>
 							<iframe
+								title="Instant recording mode demo"
 								src="https://cap.so/embed/8cq21vmz12tm1zf"
 								frameBorder="0"
 								allowFullScreen
@@ -125,6 +127,7 @@ const RecordingModes = () => {
 							}}
 						>
 							<iframe
+								title="Studio recording mode demo"
 								src="https://cap.so/embed/qk8gt56e1q1r735"
 								frameBorder="0"
 								allowFullScreen

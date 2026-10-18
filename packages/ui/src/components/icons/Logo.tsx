@@ -18,6 +18,7 @@ export const Logo = ({
 	return (
 		<div className="flex items-center">
 			<svg
+				role="img"
 				viewBox={viewBoxDimensions}
 				xmlns="http://www.w3.org/2000/svg"
 				preserveAspectRatio="xMidYMid meet"
@@ -26,6 +27,7 @@ export const Logo = ({
 				aria-label="Cap Logo"
 				className={className}
 			>
+				<title>Cap logo</title>
 				{/* <rect
           width="39.5"
           height="39.5"

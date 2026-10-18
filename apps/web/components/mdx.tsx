@@ -5,6 +5,7 @@ import React, { type ReactNode } from "react";
 import type { Options as RehypePrettyCodeOptions } from "rehype-pretty-code";
 import rehypePrettyCode from "rehype-pretty-code";
 import remarkGfm from "remark-gfm";
+import { withOccurrenceKeys } from "@/lib/occurrence-keys";
 
 interface TableData {
 	headers: string[];
@@ -12,16 +13,20 @@ interface TableData {
 }
 
 function Table({ data }: { data: TableData }) {
-	const headers = data.headers.map((header, index) => (
-		<th key={index}>{header}</th>
-	));
-	const rows = data.rows.map((row, index) => (
-		<tr key={index}>
-			{row.map((cell, cellIndex) => (
-				<td key={cellIndex}>{cell}</td>
-			))}
-		</tr>
-	));
+	const headers = withOccurrenceKeys(data.headers, (header) => header).map(
+		({ key, value: header }) => <th key={key}>{header}</th>,
+	);
+	const rows = withOccurrenceKeys(data.rows, (row) => JSON.stringify(row)).map(
+		({ key, value: row }) => (
+			<tr key={key}>
+				{withOccurrenceKeys(row, (cell) => cell).map(
+					({ key: cellKey, value: cell }) => (
+						<td key={cellKey}>{cell}</td>
+					),
+				)}
+			</tr>
+		),
+	);
 
 	return (
 		<table>
@@ -33,10 +38,7 @@ function Table({ data }: { data: TableData }) {
 	);
 }
 
-interface CustomLinkProps {
-	href: string;
-	[key: string]: any;
-}
+type CustomLinkProps = React.ComponentPropsWithoutRef<"a"> & { href: string };
 
 function CustomLink({ href, ...rest }: CustomLinkProps) {
 	if (href.startsWith("/")) {
@@ -54,11 +56,7 @@ function CustomLink({ href, ...rest }: CustomLinkProps) {
 	return <a target="_blank" rel="noopener noreferrer" {...rest} />;
 }
 
-interface RoundedImageProps {
-	src: string;
-	alt: string;
-	[key: string]: any;
-}
+type RoundedImageProps = React.ComponentProps<typeof Image>;
 
 function RoundedImage(props: RoundedImageProps) {
 	return <Image src={props.src} alt={props.alt} className="rounded-lg" />;
@@ -88,6 +86,8 @@ function Warning(props: WarningProps) {
 		<div className="not-prose px-4 py-3 border-2 border-red-300 bg-red-50 rounded-lg text-sm mb-8 dark:bg-red-950 dark:border-red-800">
 			<div className="flex items-center gap-2 font-semibold text-red-700 dark:text-red-400 mb-2">
 				<svg
+					aria-hidden="true"
+					focusable="false"
 					xmlns="http://www.w3.org/2000/svg"
 					viewBox="0 0 20 20"
 					fill="currentColor"
@@ -115,6 +115,7 @@ interface CapEmbedProps {
 function CapEmbed({ src }: CapEmbedProps) {
 	return (
 		<iframe
+			title="Cap video recording"
 			src={src}
 			frameBorder="0"
 			allowFullScreen
@@ -177,7 +178,7 @@ const rehypePrettyCodeOptions: RehypePrettyCodeOptions = {
 	keepBackground: true,
 };
 
-export function CustomMDX(props: any) {
+export function CustomMDX(props: React.ComponentProps<typeof MDXRemote>) {
 	return (
 		<MDXRemote
 			{...props}

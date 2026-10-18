@@ -134,6 +134,8 @@ export const Summary: React.FC<SummaryProps> = ({
 					<div className="p-6 bg-gradient-to-br from-blue-50 to-purple-50 rounded-lg border border-blue-100">
 						<div className="mb-3 text-blue-600">
 							<svg
+								aria-hidden="true"
+								focusable="false"
 								xmlns="http://www.w3.org/2000/svg"
 								className="mx-auto w-12 h-12"
 								fill="none"
@@ -251,7 +253,8 @@ export const Summary: React.FC<SummaryProps> = ({
 							<h3 className="mb-2 text-lg font-medium">Chapters</h3>
 							<div className="divide-y">
 								{aiData.chapters.map((chapter) => (
-									<div
+									<button
+										type="button"
 										key={chapter.start}
 										className="flex items-center p-2 rounded transition-colors cursor-pointer hover:bg-gray-100"
 										onClick={() => handleSeek(chapter.start)}
@@ -260,7 +263,7 @@ export const Summary: React.FC<SummaryProps> = ({
 											{formatTime(chapter.start)}
 										</span>
 										<span className="ml-2 text-sm">{chapter.title}</span>
-									</div>
+									</button>
 								))}
 							</div>
 						</div>

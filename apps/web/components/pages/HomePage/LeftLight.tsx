@@ -1,8 +1,14 @@
-"use client";
+import { useId } from "react";
+
+("use client");
 
 const LeftLight = () => {
+	const elementId = useId();
+
 	return (
 		<svg
+			aria-hidden="true"
+			focusable="false"
 			className="absolute top-[250px] left-24 pointer-events-none z-[10]"
 			width="739"
 			style={{
@@ -13,27 +19,27 @@ const LeftLight = () => {
 			fill="none"
 			xmlns="http://www.w3.org/2000/svg"
 		>
-			<g filter="url(#filter0_f_459_2098)">
+			<g filter={`url(#${elementId}-filter0_f_459_2098)`}>
 				<ellipse
 					cx="293"
 					cy="147"
 					rx="700"
 					ry="70"
 					transform="rotate(180 293 147)"
-					fill="url(#paint0_linear_459_2098)"
+					fill={`url(#${elementId}-paint0_linear_459_2098)`}
 				/>
 			</g>
 			<defs>
 				<filter
-					id="filter0_f_459_2098"
+					id={`${elementId}-filter0_f_459_2098`}
 					x="-152"
 					y="0"
 					width="891"
 					height="295"
 					filterUnits="userSpaceOnUse"
-					color-interpolation-filters="sRGB"
+					colorInterpolationFilters="sRGB"
 				>
-					<feFlood flood-opacity="0" result="BackgroundImageFix" />
+					<feFlood floodOpacity="0" result="BackgroundImageFix" />
 					<feBlend
 						mode="normal"
 						in="SourceGraphic"
@@ -46,15 +52,15 @@ const LeftLight = () => {
 					/>
 				</filter>
 				<linearGradient
-					id="paint0_linear_459_2098"
+					id={`${elementId}-paint0_linear_459_2098`}
 					x1="615.5"
 					y1="168"
 					x2="15.8448"
 					y2="195.824"
 					gradientUnits="userSpaceOnUse"
 				>
-					<stop stop-color="white" />
-					<stop offset="1" stop-color="white" stop-opacity="0" />
+					<stop stopColor="white" />
+					<stop offset="1" stopColor="white" stopOpacity="0" />
 				</linearGradient>
 			</defs>
 		</svg>

@@ -1,7 +1,7 @@
 "use client";
 
 import { Clapperboard, Zap } from "lucide-react";
-import Script from "next/script";
+import { JsonLdScript } from "@/components/json-ld-script";
 import { PRICING } from "@/data/pricing";
 import { SeoPageTemplate } from "../../seo/SeoPageTemplate";
 import type { SeoPageContent } from "../../seo/types";
@@ -215,10 +215,9 @@ const createFaqStructuredData = () => {
 export const ScreenRecordingSoftwarePage = () => {
 	return (
 		<>
-			<Script
-				id="faq-structured-data"
-				type="application/ld+json"
-				dangerouslySetInnerHTML={{ __html: createFaqStructuredData() }}
+			<JsonLdScript
+				idPrefix="faq-structured-data"
+				json={createFaqStructuredData()}
 			/>
 			<SeoPageTemplate content={screenRecordingSoftwareContent} />
 		</>

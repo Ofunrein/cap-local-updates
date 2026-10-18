@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import Script from "next/script";
+import { JsonLdScript } from "@/components/json-ld-script";
 import { AgenciesPage } from "@/components/pages/seo/AgenciesPage";
 import { PRICING } from "@/data/pricing";
 import { ogImageUrl } from "@/lib/og/url";
@@ -124,15 +124,13 @@ export const metadata: Metadata = {
 export default function Page() {
 	return (
 		<>
-			<Script
-				id="faq-structured-data"
-				type="application/ld+json"
-				dangerouslySetInnerHTML={{ __html: createFaqStructuredData() }}
+			<JsonLdScript
+				idPrefix="faq-structured-data"
+				json={createFaqStructuredData()}
 			/>
-			<Script
-				id="software-structured-data"
-				type="application/ld+json"
-				dangerouslySetInnerHTML={{ __html: createSoftwareStructuredData() }}
+			<JsonLdScript
+				idPrefix="software-structured-data"
+				json={createSoftwareStructuredData()}
 			/>
 			<AgenciesPage />
 		</>

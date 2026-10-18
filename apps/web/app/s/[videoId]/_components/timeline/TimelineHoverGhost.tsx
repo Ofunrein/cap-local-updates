@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { type RefObject, useEffect, useRef } from "react";
 import { useTimelineWindowRef } from "./TimelineProvider";
 import {
@@ -167,7 +168,13 @@ export function TimelineHoverGhost({
 					className="block h-[70px] w-full bg-gray-3"
 					style={{ display: "none" }}
 				>
-					<img
+					<Image
+						unoptimized
+						loading="eager"
+						decoding="auto"
+						src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs="
+						width={GHOST_CARD_WIDTH}
+						height={70}
 						ref={imgRef}
 						alt=""
 						draggable={false}

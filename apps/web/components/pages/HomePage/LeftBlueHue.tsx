@@ -1,8 +1,14 @@
-"use client";
+import { useId } from "react";
+
+("use client");
 
 const LeftBlueHue = () => {
+	const elementId = useId();
+
 	return (
 		<svg
+			aria-hidden="true"
+			focusable="false"
 			className="absolute top-10 -left-24 z-0 opacity-20 pointer-events-none md:opacity-100"
 			width="1276"
 			height="690"
@@ -10,19 +16,19 @@ const LeftBlueHue = () => {
 			fill="none"
 			xmlns="http://www.w3.org/2000/svg"
 		>
-			<g filter="url(#blue-hue-filter)">
+			<g filter={`url(#${elementId}-blue-hue-filter)`}>
 				<ellipse
 					cx="592"
 					cy="339"
 					rx="584"
 					ry="251"
 					transform="rotate(180 592 339)"
-					fill="url(#blue-hue-gradient)"
+					fill={`url(#${elementId}-blue-hue-gradient)`}
 				/>
 			</g>
 			<defs>
 				<filter
-					id="blue-hue-filter"
+					id={`${elementId}-blue-hue-filter`}
 					x="-92"
 					y="-12"
 					width="1368"
@@ -40,7 +46,7 @@ const LeftBlueHue = () => {
 					<feGaussianBlur stdDeviation="50" result="blur-effect" />
 				</filter>
 				<linearGradient
-					id="blue-hue-gradient"
+					id={`${elementId}-blue-hue-gradient`}
 					x1="1102.5"
 					y1="339"
 					x2="157.5"

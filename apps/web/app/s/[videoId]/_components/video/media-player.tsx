@@ -51,11 +51,13 @@ import {
 	useMediaRef,
 } from "media-chrome/react/media-store";
 import { AnimatePresence, motion } from "motion/react";
+import Image from "next/image";
 import * as React from "react";
 import { forwardRef, useEffect } from "react";
 import * as ReactDOM from "react-dom";
 import { useComposedRefs } from "@/app/lib/compose-refs";
 import { cn } from "@/app/lib/utils";
+import { omitProps } from "@/lib/omit-props";
 import {
 	formatPlaybackDuration,
 	normalizePlaybackSpeed,
@@ -69,6 +71,12 @@ import {
 	TooltipProvider,
 	TooltipTrigger,
 } from "./tooltip";
+
+type MediaControlButtonProps = Omit<
+	React.ComponentProps<typeof Button>,
+	"ref"
+> &
+	React.RefAttributes<HTMLButtonElement>;
 
 const ROOT_NAME = "MediaPlayer";
 const SEEK_NAME = "MediaPlayerSeek";
@@ -225,10 +233,10 @@ function createStore(
 			listenersRef.current?.add(cb);
 			return () => listenersRef.current?.delete(cb);
 		},
-		getState: () => stateRef.current!,
+		getState: () => stateRef.current,
 		setState: (key, value) => {
 			if (Object.is(stateRef.current?.[key], value)) return;
-			stateRef.current![key] = value;
+			stateRef.current[key] = value;
 			onValueChange?.[key]?.(value, store);
 			store.notify();
 		},
@@ -1046,9 +1054,8 @@ function MediaPlayerLoading(props: MediaPlayerLoadingProps) {
 		delayMs = 500,
 		asChild,
 		className,
-		children,
 		...loadingProps
-	} = props;
+	} = omitProps(props, ["children"]);
 
 	const isLoading = useMediaSelector(selectLoading);
 	const isPaused = useMediaSelector(selectPaused);
@@ -1373,10 +1380,13 @@ function MediaPlayerControlsOverlay(props: MediaPlayerControlsOverlayProps) {
 	);
 }
 
-interface MediaPlayerPlayProps extends React.ComponentProps<typeof Button> {}
+interface MediaPlayerPlayProps extends MediaControlButtonProps {}
 
 function MediaPlayerPlay(props: MediaPlayerPlayProps) {
-	const { asChild, children, className, disabled, ...playButtonProps } = props;
+	const { children, className, disabled, ...playButtonProps } = omitProps(
+		props,
+		["asChild"],
+	);
 
 	const context = useMediaPlayerContext("MediaPlayerPlay");
 	const dispatch = useMediaDispatch();
@@ -1428,20 +1438,18 @@ function MediaPlayerPlay(props: MediaPlayerPlayProps) {
 	);
 }
 
-interface MediaPlayerSeekBackwardProps
-	extends React.ComponentProps<typeof Button> {
+interface MediaPlayerSeekBackwardProps extends MediaControlButtonProps {
 	seconds?: number;
 }
 
 function MediaPlayerSeekBackward(props: MediaPlayerSeekBackwardProps) {
 	const {
 		seconds = SEEK_STEP_SHORT,
-		asChild,
 		children,
 		className,
 		disabled,
 		...seekBackwardProps
-	} = props;
+	} = omitProps(props, ["asChild"]);
 
 	const context = useMediaPlayerContext("MediaPlayerSeekBackward");
 	const dispatch = useMediaDispatch();
@@ -1487,20 +1495,18 @@ function MediaPlayerSeekBackward(props: MediaPlayerSeekBackwardProps) {
 	);
 }
 
-interface MediaPlayerSeekForwardProps
-	extends React.ComponentProps<typeof Button> {
+interface MediaPlayerSeekForwardProps extends MediaControlButtonProps {
 	seconds?: number;
 }
 
 function MediaPlayerSeekForward(props: MediaPlayerSeekForwardProps) {
 	const {
 		seconds = SEEK_STEP_LONG,
-		asChild,
 		children,
 		className,
 		disabled,
 		...seekForwardProps
-	} = props;
+	} = omitProps(props, ["asChild"]);
 
 	const context = useMediaPlayerContext("MediaPlayerSeekForward");
 	const dispatch = useMediaDispatch();
@@ -2300,7 +2306,12 @@ function MediaPlayerSeek(props: MediaPlayerSeekProps) {
 										{thumbnail.coords ? (
 											<div style={spriteStyle} />
 										) : (
-											<img
+											<Image
+												unoptimized
+												loading="eager"
+												decoding="auto"
+												width={SPRITE_CONTAINER_WIDTH}
+												height={SPRITE_CONTAINER_HEIGHT}
 												src={thumbnail.src}
 												alt={`Preview at ${hoverTime}`}
 												className="object-cover size-full"
@@ -2359,7 +2370,6 @@ interface MediaPlayerVolumeProps
 
 function MediaPlayerVolume(props: MediaPlayerVolumeProps) {
 	const {
-		asChild,
 		expandable = false,
 		enhancedAudioEnabled = false,
 		enhancedAudioMuted,
@@ -2367,7 +2377,7 @@ function MediaPlayerVolume(props: MediaPlayerVolumeProps) {
 		className,
 		disabled,
 		...volumeProps
-	} = props;
+	} = omitProps(props, ["asChild"]);
 
 	const context = useMediaPlayerContext(VOLUME_NAME);
 	const store = useStoreContext(VOLUME_NAME);
@@ -2622,7 +2632,7 @@ function MediaPlayerTime(props: MediaPlayerTimeProps) {
 
 interface MediaPlayerPlaybackSpeedProps
 	extends React.ComponentProps<typeof DropdownMenuTrigger>,
-		React.ComponentProps<typeof Button>,
+		MediaControlButtonProps,
 		Omit<React.ComponentProps<typeof DropdownMenu>, "dir">,
 		Pick<React.ComponentProps<typeof DropdownMenuContent>, "sideOffset"> {
 	speeds?: number[];
@@ -2635,12 +2645,11 @@ function MediaPlayerPlaybackSpeed(props: MediaPlayerPlaybackSpeedProps) {
 		onOpenChange: onOpenChangeProp,
 		sideOffset = FLOATING_MENU_SIDE_OFFSET,
 		speeds = SPEEDS,
-		asChild,
 		modal = false,
 		className,
 		disabled,
 		...playbackSpeedProps
-	} = props;
+	} = omitProps(props, ["asChild"]);
 
 	const context = useMediaPlayerContext(PLAYBACK_SPEED_NAME);
 	const store = useStoreContext(PLAYBACK_SPEED_NAME);
@@ -2936,7 +2945,7 @@ function MediaPlayerPlaybackSpeedDial(
 	);
 }
 
-interface MediaPlayerLoopProps extends React.ComponentProps<typeof Button> {}
+interface MediaPlayerLoopProps extends MediaControlButtonProps {}
 
 function MediaPlayerLoop(props: MediaPlayerLoopProps) {
 	const { children, className, disabled, ...loopProps } = props;
@@ -3011,8 +3020,7 @@ function MediaPlayerLoop(props: MediaPlayerLoopProps) {
 	);
 }
 
-interface MediaPlayerFullscreenProps
-	extends React.ComponentProps<typeof Button> {}
+interface MediaPlayerFullscreenProps extends MediaControlButtonProps {}
 
 function MediaPlayerFullscreen(props: MediaPlayerFullscreenProps) {
 	const { children, className, disabled, ...fullscreenProps } = props;
@@ -3059,13 +3067,15 @@ function MediaPlayerFullscreen(props: MediaPlayerFullscreenProps) {
 	);
 }
 
-interface MediaPlayerPiPProps extends React.ComponentProps<typeof Button> {
+interface MediaPlayerPiPProps extends MediaControlButtonProps {
 	onPipError?: (error: unknown, state: "enter" | "exit") => void;
 }
 
 function MediaPlayerPiP(props: MediaPlayerPiPProps) {
-	const { children, className, onPipError, disabled, ...pipButtonProps } =
-		props;
+	const { className, onPipError, disabled, ...pipButtonProps } = omitProps(
+		props,
+		["children"],
+	);
 
 	const context = useMediaPlayerContext("MediaPlayerPiP");
 	const dispatch = useMediaDispatch();
@@ -3128,7 +3138,7 @@ function MediaPlayerPiP(props: MediaPlayerPiPProps) {
 	);
 }
 
-interface MediaPlayerCaptionsProps extends React.ComponentProps<typeof Button> {
+interface MediaPlayerCaptionsProps extends MediaControlButtonProps {
 	setToggleCaptions?: (toggleCaptions: boolean) => void;
 	toggleCaptions?: boolean;
 }
@@ -3175,8 +3185,7 @@ function MediaPlayerCaptions(props: MediaPlayerCaptionsProps) {
 
 type EnhancedAudioStatus = "PROCESSING" | "COMPLETE" | "ERROR" | "SKIPPED";
 
-interface MediaPlayerEnhancedAudioProps
-	extends React.ComponentProps<typeof Button> {
+interface MediaPlayerEnhancedAudioProps extends MediaControlButtonProps {
 	enhancedAudioStatus?: EnhancedAudioStatus | null;
 	enhancedAudioEnabled?: boolean;
 	setEnhancedAudioEnabled?: (enabled: boolean) => void;
@@ -3370,8 +3379,7 @@ function EnhancedAudioSync({
 	return null;
 }
 
-interface MediaPlayerDownloadProps
-	extends React.ComponentProps<typeof Button> {}
+interface MediaPlayerDownloadProps extends MediaControlButtonProps {}
 
 function MediaPlayerDownload(props: MediaPlayerDownloadProps) {
 	const { children, className, disabled, ...downloadProps } = props;
@@ -3446,7 +3454,6 @@ function MediaPlayerSettings(props: MediaPlayerSettingsProps) {
 		onOpenChange: onOpenChangeProp,
 		sideOffset = FLOATING_MENU_SIDE_OFFSET,
 		speeds = SPEEDS,
-		asChild,
 		modal = false,
 		className,
 		disabled,
@@ -3459,7 +3466,7 @@ function MediaPlayerSettings(props: MediaPlayerSettingsProps) {
 		isCaptionLoading = false,
 		hasCaptions = false,
 		...settingsProps
-	} = props;
+	} = omitProps(props, ["asChild"]);
 
 	const context = useMediaPlayerContext(SETTINGS_NAME);
 	const store = useStoreContext(SETTINGS_NAME);

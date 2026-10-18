@@ -1,5 +1,6 @@
 import { Input } from "@cap/ui";
 import clsx from "clsx";
+import { useId } from "react";
 import { useDashboardContext } from "@/app/(org)/dashboard/Contexts";
 
 interface DomainStepProps {
@@ -19,6 +20,8 @@ const DomainStep = ({
 	onClearError,
 	submitLoading,
 }: DomainStepProps) => {
+	const elementId = useId();
+
 	const { user } = useDashboardContext();
 	const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
 		setDomain(e.target.value);
@@ -39,7 +42,7 @@ const DomainStep = ({
 			<div className="space-y-3">
 				<Input
 					type="text"
-					id="customDomain"
+					id={`${elementId}-customDomain`}
 					placeholder="caps.yourdomain.com"
 					value={domain}
 					disabled={!user.isPro || submitLoading}

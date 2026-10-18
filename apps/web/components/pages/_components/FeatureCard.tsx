@@ -1,7 +1,9 @@
+import Image, { type StaticImageData } from "next/image";
+
 interface FeatureCardProps {
 	title: string;
 	description: string;
-	imagePath: string;
+	image: StaticImageData;
 	imageAlt?: string;
 	bg?: string;
 	className?: string;
@@ -11,7 +13,7 @@ interface FeatureCardProps {
 export const FeatureCard: React.FC<FeatureCardProps> = ({
 	title,
 	description,
-	imagePath,
+	image,
 	imageAlt,
 	className,
 	bg,
@@ -24,8 +26,11 @@ export const FeatureCard: React.FC<FeatureCardProps> = ({
 			}}
 			className={`bg-gray-2 rounded-xl border border-gray-4 p-8 pt-0 h-full backdrop-blur-md relative z-10 flex flex-col overflow-hidden ${className}`}
 		>
-			<img
-				src={imagePath}
+			<Image
+				unoptimized
+				loading="eager"
+				decoding="auto"
+				src={image}
 				alt={imageAlt || title}
 				className={`object-contain mt-10 mb-6 w-full rounded-lg ${imageHeight}`}
 			/>

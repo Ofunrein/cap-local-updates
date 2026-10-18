@@ -1,3 +1,15 @@
+const skeletonSlots = [
+	"top-left",
+	"top-center",
+	"top-right",
+	"middle-left",
+	"middle-center",
+	"middle-right",
+	"bottom-left",
+	"bottom-center",
+	"bottom-right",
+];
+
 export default function Loading() {
 	return (
 		<div className="mt-[120px]">
@@ -13,9 +25,9 @@ export default function Loading() {
 
 				<div className="max-w-6xl mx-auto">
 					<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-						{Array.from({ length: 9 }).map((_, index) => (
+						{skeletonSlots.map((slot) => (
 							<div
-								key={index}
+								key={slot}
 								className="animate-pulse bg-white border border-gray-200 rounded-lg p-6"
 							>
 								<div className="flex items-start justify-between mb-3">

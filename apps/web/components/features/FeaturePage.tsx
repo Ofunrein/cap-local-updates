@@ -1,7 +1,7 @@
 "use client";
 
-import Script from "next/script";
 import { type JSX, useId } from "react";
+import { JsonLdScript } from "@/components/json-ld-script";
 import { SeoPageTemplate } from "@/components/seo/SeoPageTemplate";
 import {
 	createFeaturePageStructuredData,
@@ -34,10 +34,9 @@ export const FeaturePage = ({
 
 	return (
 		<>
-			<Script
+			<JsonLdScript
 				id={`faq-structured-data-${scriptId}`}
-				type="application/ld+json"
-				dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
+				json={JSON.stringify(structuredData)}
 			/>
 			<SeoPageTemplate
 				content={seoContent}

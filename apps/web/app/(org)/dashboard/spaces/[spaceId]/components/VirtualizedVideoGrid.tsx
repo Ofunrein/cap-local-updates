@@ -74,11 +74,8 @@ const VirtualizedVideoGrid = ({
 		>
 			<Grid grid={grid}>
 				{(index) => {
-					// Skip rendering if index is out of bounds
-					if (index >= videos.length) return null;
-
-					// Get the video at this index (we know it exists because of the check above)
-					const video = videos[index]!;
+					const video = videos[index];
+					if (!video) return null;
 
 					return (
 						<div

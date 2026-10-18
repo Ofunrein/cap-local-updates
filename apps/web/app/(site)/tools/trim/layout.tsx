@@ -1,3 +1,4 @@
+import { escapeJsonForScript } from "@/lib/json-ld";
 import { createBreadcrumbSchema } from "@/utils/web-schema";
 
 export { metadata } from "./metadata";
@@ -15,12 +16,9 @@ export default function TrimLayout({
 }) {
 	return (
 		<>
-			<script
-				type="application/ld+json"
-				dangerouslySetInnerHTML={{
-					__html: JSON.stringify(breadcrumbSchema),
-				}}
-			/>
+			<script type="application/ld+json">
+				{escapeJsonForScript(JSON.stringify(breadcrumbSchema))}
+			</script>
 			{children}
 		</>
 	);

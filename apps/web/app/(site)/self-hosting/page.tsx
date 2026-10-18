@@ -12,5 +12,5 @@ export const metadata: Metadata = buildMarketingMetadata({
 });
 
 export default async function SelfHosting() {
-	return <SelfHostingPage />;
+	return <SelfHostingPage featuresId="features" />;
 }

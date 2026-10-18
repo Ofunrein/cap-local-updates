@@ -62,7 +62,8 @@ const SummaryChapters = ({
 					<h3 className="mb-2 text-lg font-medium">Chapters</h3>
 					<div className="divide-y">
 						{aiData.chapters?.map((chapter) => (
-							<div
+							<button
+								type="button"
 								key={chapter.start}
 								className="flex items-center p-2 rounded transition-colors cursor-pointer hover:bg-gray-100"
 								onClick={() => handleSeek(chapter.start)}
@@ -71,7 +72,7 @@ const SummaryChapters = ({
 									{formatTimeMinutes(chapter.start)}
 								</span>
 								<span className="ml-2 text-sm">{chapter.title}</span>
-							</div>
+							</button>
 						))}
 					</div>
 				</div>

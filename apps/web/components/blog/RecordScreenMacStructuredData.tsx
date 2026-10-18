@@ -1,6 +1,7 @@
 "use client";
 
-import Script from "next/script";
+import { JsonLdScript } from "@/components/json-ld-script";
+
 import { recordScreenMacContent } from "../../content/blog-content/record-screen-mac-system-audio";
 
 // Create Article structured data for SEO
@@ -47,15 +48,13 @@ const createFaqStructuredData = () => {
 export const RecordScreenMacStructuredData = () => {
 	return (
 		<>
-			<Script
-				id="article-structured-data"
-				type="application/ld+json"
-				dangerouslySetInnerHTML={{ __html: createArticleStructuredData() }}
+			<JsonLdScript
+				idPrefix="article-structured-data"
+				json={createArticleStructuredData()}
 			/>
-			<Script
-				id="faq-structured-data"
-				type="application/ld+json"
-				dangerouslySetInnerHTML={{ __html: createFaqStructuredData() }}
+			<JsonLdScript
+				idPrefix="faq-structured-data"
+				json={createFaqStructuredData()}
 			/>
 		</>
 	);

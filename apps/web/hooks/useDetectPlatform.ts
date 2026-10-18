@@ -1,5 +1,13 @@
 import { useEffect, useState } from "react";
 
+interface NavigatorWithArchitecture extends Navigator {
+	userAgentData?: {
+		getHighEntropyValues?: (
+			hints: string[],
+		) => Promise<{ architecture?: string }>;
+	};
+}
+
 export interface PlatformInfo {
 	platform: string | null;
 	isIntel: boolean;
@@ -56,16 +64,14 @@ export const useDetectPlatform = (): PlatformInfo => {
 				return;
 			}
 
-			if (
-				"userAgentData" in navigator &&
-				(navigator as any).userAgentData?.getHighEntropyValues
-			) {
+			const uaData = (navigator as NavigatorWithArchitecture).userAgentData;
+			if (uaData?.getHighEntropyValues) {
 				try {
-					const uaData = await (
-						navigator as any
-					).userAgentData.getHighEntropyValues(["architecture"]);
+					const architectureData = await uaData.getHighEntropyValues([
+						"architecture",
+					]);
 					if (!isMounted) return;
-					const arch = (uaData.architecture ?? "").toLowerCase();
+					const arch = (architectureData.architecture ?? "").toLowerCase();
 					if (isMounted) setIsIntel(arch !== "arm" && arch !== "arm64");
 					return;
 				} catch {}

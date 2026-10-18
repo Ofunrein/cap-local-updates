@@ -3,11 +3,18 @@
 "use client";
 
 import { Button } from "@cap/ui";
+import Image from "next/image";
 import { CommercialGetStarted } from "@/components/CommercialGetStarted";
 import { FeatureCard } from "@/components/pages/_components/FeatureCard";
 import { LogoSection } from "@/components/pages/_components/LogoSection";
+import cloud from "../../../public/illustrations/cloud-feature.webp";
+import collaboration from "../../../public/illustrations/collaboration.webp";
+import background from "../../../public/illustrations/mask-big-recorder.webp";
+import multiplatform from "../../../public/illustrations/multiplatmain.png";
+import privacy from "../../../public/illustrations/privacy.webp";
+import capture from "../../../public/illustrations/video-capture.webp";
 
-export const SelfHostingPage = () => {
+export const SelfHostingPage = ({ featuresId }: { featuresId: string }) => {
 	const handleSmoothScroll = (
 		e: React.MouseEvent<HTMLButtonElement>,
 		targetId: string,
@@ -38,22 +45,25 @@ export const SelfHostingPage = () => {
 				<div className="flex flex-col justify-center items-center mb-5 space-y-2 fade-in-up animate-delay-2 sm:flex-row sm:space-y-0 sm:space-x-2">
 					<Button
 						variant="blue"
-						href="#features"
+						href={`#${featuresId}`}
 						size="lg"
 						className="flex justify-center items-center w-full font-medium text-md sm:w-auto"
-						onClick={(e) => handleSmoothScroll(e, "features")}
+						onClick={(e) => handleSmoothScroll(e, featuresId)}
 					>
 						Learn More
 					</Button>
 				</div>
-				<img
-					src="/illustrations/mask-big-recorder.webp"
+				<Image
+					unoptimized
+					loading="eager"
+					decoding="auto"
+					src={background}
 					alt="Self-hosting Background"
 					className="absolute top-0 left-0 z-0 -mt-40 w-full h-auto pointer-events-none"
 				/>
 			</div>
 			<LogoSection />
-			<div className="pb-32 wrapper md:pb-40" id="features">
+			<div className="pb-32 wrapper md:pb-40" id={featuresId}>
 				<div className="space-y-3">
 					{/* Section 1: 35% / 65% split */}
 					<div className="grid grid-cols-1 gap-3 md:grid-cols-12">
@@ -61,7 +71,7 @@ export const SelfHostingPage = () => {
 							<FeatureCard
 								title="Privacy-first"
 								description="Host Cap on your own servers with complete data sovereignty. Maintain full control over your sensitive information and ensure compliance with your organization's security policies and regulatory requirements."
-								imagePath="/illustrations/privacy.webp"
+								image={privacy}
 								imageAlt="Complete Control"
 								imageHeight="h-[280px]"
 							/>
@@ -70,7 +80,7 @@ export const SelfHostingPage = () => {
 							<FeatureCard
 								title="Multi-Platform Support"
 								description="Self-hosted Cap works seamlessly across macOS and Windows, giving your team the flexibility to collaborate regardless of their device preference. Deploy once and enable your entire organization to capture, share, and collaborate from any device."
-								imagePath="/illustrations/multiplatmain.png"
+								image={multiplatform}
 								bg="/illustrations/multiplatbg.webp"
 								imageAlt="Enterprise-Ready"
 								className="bg-[center_top_-90px] bg-no-repeat bg-cover lg:bg-[center_top_-60px]"
@@ -86,7 +96,7 @@ export const SelfHostingPage = () => {
 								title="Unlimited Recording and Cloud Storage"
 								bg="/illustrations/multiplatbg.webp"
 								description="Configure storage limits based on your infrastructure capacity. Self-hosting eliminates cloud storage fees and gives you complete control over retention policies, ideal for teams with high-volume recording needs or long-term archival requirements."
-								imagePath="/illustrations/cloud-feature.webp"
+								image={cloud}
 								imageAlt="White Labeling"
 								imageHeight="h-[215px]"
 								className="lg:bg-[center_top_-150px] bg-[center_top_-120px] bg-no-repeat bg-cover"
@@ -96,7 +106,7 @@ export const SelfHostingPage = () => {
 							<FeatureCard
 								title="High-Quality Video Capture"
 								description="Deliver crystal-clear recordings to your team with self-hosted infrastructure optimized for your network. Eliminate quality degradation from third-party services and ensure consistent performance across your organization."
-								imagePath="/illustrations/video-capture.webp"
+								image={capture}
 								imageAlt="Data Sovereignty"
 								imageHeight="h-[224px]"
 							/>
@@ -108,7 +118,7 @@ export const SelfHostingPage = () => {
 						<FeatureCard
 							title="Advanced Team Collaboration"
 							description="Enable seamless knowledge sharing across departments with customizable access controls and team workspaces. Self-hosted Cap provides enterprise-grade collaboration features that integrate with your existing authentication systems and team structure."
-							imagePath="/illustrations/collaboration.webp"
+							image={collaboration}
 							imageAlt="Dedicated Support"
 							imageHeight="h-[285px]"
 						/>
@@ -116,7 +126,7 @@ export const SelfHostingPage = () => {
 				</div>
 			</div>
 			<div className="px-5 mb-32 md:mb-40">
-				<CommercialGetStarted />
+				<CommercialGetStarted featuresId={featuresId} />
 			</div>
 		</div>
 	);

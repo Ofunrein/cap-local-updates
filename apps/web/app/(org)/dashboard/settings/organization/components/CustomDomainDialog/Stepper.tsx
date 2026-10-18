@@ -20,7 +20,9 @@ export const Stepper = ({ steps, onStepClick }: StepperProps) => {
 		<div className="flex justify-center items-center px-7 py-3 w-full border-b bg-gray-1 border-gray-4">
 			{steps.map((step, index) => (
 				<Fragment key={step.id}>
-					<div
+					<button
+						type="button"
+						disabled={!onStepClick || step.status !== StepStatus.COMPLETED}
 						className={clsx(
 							"flex gap-2 items-center",
 							onStepClick &&
@@ -77,7 +79,7 @@ export const Stepper = ({ steps, onStepClick }: StepperProps) => {
 						>
 							{step.name}
 						</p>
-					</div>
+					</button>
 					{index !== steps.length - 1 && (
 						<div className="relative flex-1 mx-5 h-[2px] border-t border-dashed border-gray-5">
 							<motion.div

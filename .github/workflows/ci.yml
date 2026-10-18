@@ -27,7 +27,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Check for changes
-        uses: dorny/paths-filter@v2
+        uses: dorny/paths-filter@v4
         id: filter
         with:
           filters: |
@@ -82,6 +82,9 @@ jobs:
 
       - name: Typecheck
         run: pnpm typecheck
+
+      - name: Web unit tests
+        run: pnpm --dir apps/web exec vitest run __tests__/unit
 
   mobile:
     name: Mobile
@@ -206,10 +209,10 @@ jobs:
       - name: Setup Biome
         uses: biomejs/setup-biome@v2
         with:
-          version: latest
+          version: 2.2.0
 
       - name: Run Biome
-        run: biome ci . || true
+        run: biome ci .
 
   build-desktop:
     name: Build Desktop
@@ -327,9 +330,10 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup node
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v7
         with:
           node-version: 20
+          package-manager-cache: false
 
       - name: Run verify
         shell: bash
@@ -367,9 +371,10 @@ jobs:
           save-cache: true
 
       - name: Setup node
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v7
         with:
           node-version: 24
+          package-manager-cache: false
 
       - run: node scripts/setup.js
 

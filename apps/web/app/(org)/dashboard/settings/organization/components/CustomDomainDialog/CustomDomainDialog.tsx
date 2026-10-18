@@ -286,6 +286,24 @@ const CustomDomainDialog = ({
 		],
 	);
 
+	useEffect(() => {
+		if (!currentStep) return;
+		//if current step is success, close dialog in 8 seconds
+		if (stepState.currentIndex === 2) {
+			setTimeout(() => {
+				handleClose();
+			}, 8000);
+		} else if (isVerified) {
+			handleNext();
+		}
+	}, [
+		currentStep,
+		isVerified,
+		stepState.currentIndex,
+		handleClose,
+		handleNext,
+	]);
+
 	if (!currentStep) {
 		return null;
 	}
@@ -342,17 +360,6 @@ const CustomDomainDialog = ({
 			orgId: activeOrganization?.organization.id as string,
 		});
 	};
-
-	useEffect(() => {
-		//if current step is success, close dialog in 8 seconds
-		if (stepState.currentIndex === 2) {
-			setTimeout(() => {
-				handleClose();
-			}, 8000);
-		} else if (isVerified) {
-			handleNext();
-		}
-	}, [isVerified, stepState.currentIndex, handleClose, handleNext]);
 
 	return (
 		<>

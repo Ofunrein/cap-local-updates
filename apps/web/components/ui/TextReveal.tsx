@@ -15,6 +15,7 @@ import {
 	type ReactNode,
 	useRef,
 } from "react";
+import { withOccurrenceKeys } from "@/lib/occurrence-keys";
 
 export interface TextRevealProps extends ComponentPropsWithoutRef<"div"> {
 	children: string;
@@ -31,7 +32,7 @@ export const TextReveal: FC<TextRevealProps> = ({ children, className }) => {
 		throw new Error("TextReveal: children must be a string");
 	}
 
-	const words = children.split(" ");
+	const words = withOccurrenceKeys(children.split(" "), (word) => word);
 
 	return (
 		<div ref={targetRef} className={clsx("relative z-0 h-[200vh]", className)}>
@@ -45,11 +46,11 @@ export const TextReveal: FC<TextRevealProps> = ({ children, className }) => {
 						"flex flex-wrap gap-y-4 justify-center p-5 text-3xl font-medium text-center md:gap-y-8 md:text-[52px] text-gray-12"
 					}
 				>
-					{words.map((word, i) => {
+					{words.map(({ key, value: word }, i) => {
 						const start = i / words.length;
 						const end = start + 1 / words.length;
 						return (
-							<Word key={i} progress={scrollYProgress} range={[start, end]}>
+							<Word key={key} progress={scrollYProgress} range={[start, end]}>
 								{word}
 							</Word>
 						);

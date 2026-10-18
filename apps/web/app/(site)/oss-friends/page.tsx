@@ -30,11 +30,11 @@ async function fetchOSSFriends(): Promise<OSSFriendsResponse> {
 		throw new Error("Failed to fetch OSS friends");
 	}
 
-	const data = await response.json();
+	const data: OSSFriendsResponse = await response.json();
 
 	const filteredData = {
 		...data,
-		data: data.data.filter((friend: any) => friend.name !== "Cap"),
+		data: data.data.filter((friend) => friend.name !== "Cap"),
 	};
 
 	return filteredData;

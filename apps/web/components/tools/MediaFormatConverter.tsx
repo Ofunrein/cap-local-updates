@@ -3,9 +3,10 @@
 import { Button } from "@cap/ui";
 import * as MediaParser from "@remotion/media-parser";
 import type { WebCodecsController } from "@remotion/webcodecs";
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { trackEvent } from "@/app/utils/analytics";
 
 export const SUPPORTED_FORMATS = {
@@ -153,10 +154,15 @@ export const MediaFormatConverter = ({
 		initialConversionPath,
 	);
 
+	const controlId = useId();
 	const [file, setFile] = useState<File | null>(null);
 	const [isConverting, setIsConverting] = useState(false);
 	const [progress, setProgress] = useState(0);
 	const [outputUrl, setOutputUrl] = useState<string | null>(null);
+	const [gifDimensions, setGifDimensions] = useState<{
+		width: number;
+		height: number;
+	} | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [mediaEngineLoaded, setMediaEngineLoaded] = useState(true);
 	const [isDragging, setIsDragging] = useState(false);
@@ -357,14 +363,14 @@ export const MediaFormatConverter = ({
 			} else {
 				await convertVideoFormat(file);
 			}
-		} catch (err: any) {
+		} catch (err: unknown) {
 			console.error("Detailed conversion error:", err);
 
 			if (MediaParser.hasBeenAborted?.(err)) {
 				setError("Conversion was cancelled");
 			} else {
 				let errorMessage = "Conversion failed: ";
-				if (err.message) {
+				if (err && typeof err === "object" && "message" in err && err.message) {
 					errorMessage += err.message;
 				} else if (typeof err === "string") {
 					errorMessage += err;
@@ -378,7 +384,10 @@ export const MediaFormatConverter = ({
 					conversion_path: conversionPath,
 					fileSize: file.size,
 					fileName: file.name,
-					error: err.message || "Unknown error",
+					error:
+						err && typeof err === "object" && "message" in err
+							? err.message || "Unknown error"
+							: "Unknown error",
 				});
 			}
 		} finally {
@@ -557,6 +566,7 @@ export const MediaFormatConverter = ({
 			URL.revokeObjectURL(videoElement.src);
 
 			const gifUrl = URL.createObjectURL(gifBlob);
+			setGifDimensions({ width: targetWidth, height: targetHeight });
 			setOutputUrl(gifUrl);
 			setProgress(100);
 
@@ -640,7 +650,7 @@ export const MediaFormatConverter = ({
 
 			const outputContainer = currentTargetFormat === "webm" ? "webm" : "mp4";
 
-			let videoCodec;
+			let videoCodec: "vp8" | "h264";
 			if (outputContainer === "webm") {
 				videoCodec = "vp8";
 			} else {
@@ -649,8 +659,8 @@ export const MediaFormatConverter = ({
 
 			const result = await webcodecs.convertMedia({
 				src: inputFile,
-				container: outputContainer as any,
-				videoCodec: videoCodec as any,
+				container: outputContainer,
+				videoCodec,
 				onProgress,
 				controller: controller as unknown as WebCodecsController,
 				expectedDurationInSeconds: metadata.durationInSeconds || undefined,
@@ -886,11 +896,15 @@ export const MediaFormatConverter = ({
 					<h3 className="text-lg font-medium mb-3">GIF Settings</h3>
 					<div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
 						<div>
-							<label className="block text-sm font-medium text-gray-700 mb-1">
+							<label
+								htmlFor={`${controlId}-gifQuality`}
+								className="block text-sm font-medium text-gray-700 mb-1"
+							>
 								Quality (Lower is better)
 							</label>
 							<div className="flex items-center">
 								<input
+									id={`${controlId}-gifQuality`}
 									type="range"
 									min="1"
 									max="20"
@@ -907,11 +921,15 @@ export const MediaFormatConverter = ({
 							</p>
 						</div>
 						<div>
-							<label className="block text-sm font-medium text-gray-700 mb-1">
+							<label
+								htmlFor={`${controlId}-gifFps`}
+								className="block text-sm font-medium text-gray-700 mb-1"
+							>
 								Frames Per Second
 							</label>
 							<div className="flex items-center">
 								<input
+									id={`${controlId}-gifFps`}
 									type="range"
 									min="5"
 									max="30"
@@ -926,11 +944,15 @@ export const MediaFormatConverter = ({
 							</p>
 						</div>
 						<div>
-							<label className="block text-sm font-medium text-gray-700 mb-1">
+							<label
+								htmlFor={`${controlId}-gifMaxWidth`}
+								className="block text-sm font-medium text-gray-700 mb-1"
+							>
 								Max Width (px)
 							</label>
 							<div className="flex items-center">
 								<input
+									id={`${controlId}-gifMaxWidth`}
 									type="range"
 									min="240"
 									max="1280"
@@ -965,8 +987,16 @@ export const MediaFormatConverter = ({
 				</div>
 			)}
 
-			<div
-				className={`border-2 border-dashed rounded-lg p-8 mb-6 flex flex-col items-center justify-center cursor-pointer transition-colors ${
+			<input
+				type="file"
+				accept={getAcceptAttribute(currentSourceFormat)}
+				className="hidden"
+				onChange={handleFileChange}
+				ref={fileInputRef}
+			/>
+			<button
+				type="button"
+				className={`w-full border-2 border-dashed rounded-lg p-8 mb-6 flex flex-col items-center justify-center cursor-pointer transition-colors ${
 					isDragging
 						? "border-blue-500 bg-blue-50"
 						: "border-gray-300 hover:border-blue-400"
@@ -977,18 +1007,12 @@ export const MediaFormatConverter = ({
 				onClick={() => fileInputRef.current?.click()}
 				style={{ minHeight: "200px" }}
 			>
-				<input
-					type="file"
-					accept={getAcceptAttribute(currentSourceFormat)}
-					className="hidden"
-					onChange={handleFileChange}
-					ref={fileInputRef}
-				/>
-
 				<div className="text-center">
 					{!file ? (
 						<>
 							<svg
+								aria-hidden="true"
+								focusable="false"
 								className="mx-auto h-12 w-12 text-gray-400 mb-3"
 								fill="none"
 								viewBox="0 0 24 24"
@@ -1011,6 +1035,8 @@ export const MediaFormatConverter = ({
 					) : (
 						<>
 							<svg
+								aria-hidden="true"
+								focusable="false"
 								className="mx-auto h-12 w-12 text-green-500 mb-3"
 								fill="none"
 								viewBox="0 0 24 24"
@@ -1030,7 +1056,7 @@ export const MediaFormatConverter = ({
 						</>
 					)}
 				</div>
-			</div>
+			</button>
 
 			{error && (
 				<div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-600">
@@ -1072,8 +1098,13 @@ export const MediaFormatConverter = ({
 							className="w-full rounded-lg mb-4"
 						></audio>
 					)}
-					{config.outputType.startsWith("image/") && (
-						<img
+					{config.outputType.startsWith("image/") && gifDimensions && (
+						<Image
+							unoptimized
+							loading="eager"
+							decoding="auto"
+							width={gifDimensions.width}
+							height={gifDimensions.height}
 							src={outputUrl}
 							alt="Converted GIF"
 							className="max-w-full rounded-lg mb-4 mx-auto"
